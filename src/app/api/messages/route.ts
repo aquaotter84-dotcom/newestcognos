@@ -12,6 +12,8 @@ import { requireAuth } from "@/lib/auth";
 import { canAccessWorkspace } from "@/lib/workspace";
 import { getDocumentContext } from "@/lib/documents";
 
+export const maxDuration = 60;
+
 const VALID_TIERS = ["short", "medium", "long", "mythic"] as const;
 type Tier = (typeof VALID_TIERS)[number];
 

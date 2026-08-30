@@ -14,7 +14,26 @@ function getDb(): ReturnType<typeof drizzle> {
         "DATABASE_URL is required. Add it to your environment variables (Vercel Settings > Environment Variables), or set it in .env for local development."
       );
     }
-    globalForDb.__cognosPool = new Pool({ connectionString: databaseUrl });
+
+    // Neon/Vercel defaults: keep the per-instance pool small so a single
+    // serverless function doesn't exhaust Neon's connection limit. Use the
+    // *pooled* connection string in Vercel; the direct string is fine locally.
+    const max = Math.max(
+      1,
+      Math.min(20, Number(process.env.DATABASE_POOL_MAX || 10))
+    );
+    const idleTimeoutMillis = Number(
+      process.env.DATABASE_POOL_IDLE_MS || 30000
+    );
+
+    globalForDb.__cognosPool = new Pool({
+      connectionString: databaseUrl,
+      max,
+      idleTimeoutMillis,
+      connectionTimeoutMillis: Number(
+        process.env.DATABASE_CONNECTION_TIMEOUT_MS || 10000
+      ),
+    });
     globalForDb.__cognosDb = drizzle(globalForDb.__cognosPool);
   }
   return globalForDb.__cognosDb;

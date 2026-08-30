@@ -46,15 +46,23 @@ This is the open-source rewrite of the Base44 “COGNOS / Cognitive-Acuity” ap
 4. `npm install`
 5. `npm run dev` — open http://localhost:3000
 
-## Deploy on Vercel
+## Deploy on Neon + Vercel
 
-1. Push this repo to GitHub.
-2. Import it in Vercel (Framework preset: Next.js — auto-detected).
-3. In Vercel project Settings → Environment Variables, add:
-   - `DATABASE_URL`
-   - `BLUESMINDS_API_KEY`
-   - (optional) `BLUESMINDS_MODEL`
-4. Deploy. The database tables must exist — run `src/db/schema.sql` in your database first.
+1. Create a Neon database (free plan is fine) and copy the **pooled** connection string (`Project → Connect → Connection string → Pooled`). It looks like `postgresql://...-pooler...ssl=require`.
+2. Run `src/db/schema.sql` in the Neon SQL editor once (or `src/db/migrate.sql` if you already used the older single-workspace schema).
+3. Push this repo to GitHub and import it in Vercel (framework preset: Next.js — auto-detected).
+4. Add these Vercel Environment Variables:
+   - `DATABASE_URL` — the Neon pooled string
+   - `BLUESMINDS_API_KEY` — your BluesMinds key
+   - `CRON_SECRET` — a strong random string (e.g. `openssl rand -hex 32`)
+   - optional `BLUESMINDS_MODEL`, `MEMORY_EXTRACTION`, `COUNCIL_MAX_REVISIONS`
+   - optional `WEB_SEARCH_PROVIDER` + provider key for Tavily/Exa
+5. In Vercel project Settings → Cron Jobs, enable the built-in cron (the repo already includes `vercel.json` with a daily briefing at 08:00 UTC) and set the secret to the same `CRON_SECRET`.
+6. Deploy. Register an account from `/register`, then use the app.
+
+### Neon notes
+- Use the **pooled** connection string in Vercel; the direct (non-pooler) string is best for local `psql`/migrations.
+- `src/db/index.ts` caps the pool at `DATABASE_POOL_MAX` (default 10) and reuses the pool across warm serverless invocations; set it lower if you hit Neon connection limits.
 
 ## API
 

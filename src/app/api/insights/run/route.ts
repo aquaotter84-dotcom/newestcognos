@@ -6,6 +6,8 @@ import { runCouncil } from "@/lib/council";
 import { resolveWorkspaceId } from "@/lib/workspace";
 import { requireAuth } from "@/lib/auth";
 
+export const maxDuration = 60;
+
 const VALID_TASK_TYPES = [
   "conversation",
   "question_answering",

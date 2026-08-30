@@ -3,6 +3,12 @@
 Reference repo: `aquaotter84-dotcom/cognitive-acuity` (Base44 export)
 Target repo: `aquaotter84-dotcom/newestcognos` (open-source Next.js rewrite)
 
+## Deployment target
+
+- **Hosting:** Vercel (Next.js)
+- **Database:** Neon Postgres (pooled connection string)
+- Included in this branch: Neon/Vercel pool defaults, `vercel.json` cron (daily briefing at 08:00 UTC), `CRON_SECRET` support, and setup docs in `README.md`.
+
 ## Done in this branch
 
 The open-source app now covers most of the Base44 product surface without the Base44 SDK:

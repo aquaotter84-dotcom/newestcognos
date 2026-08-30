@@ -14,6 +14,8 @@ import { requireAuth } from "@/lib/auth";
 
 const DEFAULT_TOPIC = "Daily Council Briefing. Review recent activity and stored memory, then give one focused review of the day.";
 
+export const maxDuration = 60;
+
 function taskTypeFromValue(value: unknown) {
   const types = [
     "conversation",
@@ -127,13 +129,24 @@ async function runForWorkspace(workspaceId: string) {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireAuth();
-  if (!auth.user) return auth.response!;
+  const body = await request.json().catch(() => ({}));
+  const requested = body.workspaceId ? String(body.workspaceId) : null;
+
+  // Vercel Cron sends the CRON_SECRET as a Bearer token in Authorization.
+  // When that is configured, the scheduled briefing runs without a user
+  // session across the app's workspaces.
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = request.headers.get("authorization");
+  const isCron = Boolean(cronSecret) && authHeader === `Bearer ${cronSecret}`;
+
+  let userId: string | null = null;
+  if (!isCron) {
+    const auth = await requireAuth();
+    if (!auth.user) return auth.response!;
+    userId = auth.user.id;
+  }
 
   try {
-    const body = await request.json().catch(() => ({}));
-    const requested = body.workspaceId ? String(body.workspaceId) : null;
-
     let targets;
     if (requested) {
       targets = await db
@@ -141,14 +154,19 @@ export async function POST(request: Request) {
         .from(workspaces)
         .where(eq(workspaces.id, requested))
         .limit(1);
-      if (targets.length === 0 || targets[0].ownerId !== auth.user.id) {
+      if (
+        targets.length === 0 ||
+        (!isCron && targets[0].ownerId !== userId)
+      ) {
         return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
       }
+    } else if (isCron) {
+      targets = await db.select().from(workspaces);
     } else {
       targets = await db
         .select()
         .from(workspaces)
-        .where(or(eq(workspaces.ownerId, auth.user.id), isNull(workspaces.ownerId)));
+        .where(or(eq(workspaces.ownerId, userId!), isNull(workspaces.ownerId)));
     }
 
     const processed = [];
