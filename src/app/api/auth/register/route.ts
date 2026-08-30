@@ -5,10 +5,12 @@ import { eq } from "drizzle-orm";
 import {
   SESSION_COOKIE,
   createSession,
+  getAdminConfig,
   hashPassword,
   isValidEmail,
   sessionCookieOptions,
 } from "@/lib/auth";
+import { ensureDefaultWorkspace } from "@/lib/workspace";
 
 export async function POST(request: Request) {
   try {
@@ -43,9 +45,11 @@ export async function POST(request: Request) {
     }
 
     const passwordHash = await hashPassword(password);
+    const admin = getAdminConfig();
+    const role = admin.email && email === admin.email ? "admin" : undefined;
     const [user] = await db
       .insert(users)
-      .values({ email, name, passwordHash })
+      .values(role ? { email, name, passwordHash, role } : { email, name, passwordHash })
       .returning();
 
     const { token, expiresAt } = await createSession(user.id);
@@ -56,6 +60,10 @@ export async function POST(request: Request) {
       role: user.role,
     });
     response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions(expiresAt));
+
+    // Best-effort: land the user in a ready-to-use workspace.
+    await ensureDefaultWorkspace(user.id);
+
     return response;
   } catch (err) {
     console.error(err);

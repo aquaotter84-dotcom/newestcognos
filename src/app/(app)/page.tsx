@@ -385,10 +385,11 @@ function ChatPageInner() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
+      {/* Input — never disabled on first run: handleSend creates the
+          session (and workspace) lazily when the user sends message one. */}
       <ChatInput
         onSend={handleSend}
-        disabled={thinking || (!activeSessionId && sessions.length === 0)}
+        disabled={thinking}
         isProcessing={thinking}
         onStop={handleStop}
         availableDocuments={attachableDocs}

@@ -45,6 +45,17 @@ export async function getOrCreateDefaultWorkspace(userId: string) {
   throw new Error("Unable to create or find a default workspace");
 }
 
+// Best-effort variant used right after register/login so the first screen
+// the user sees already has a workspace (and an enabled chat input).
+export async function ensureDefaultWorkspace(userId: string) {
+  try {
+    return await getOrCreateDefaultWorkspace(userId);
+  } catch (err) {
+    console.error("Failed to ensure default workspace", err);
+    return null;
+  }
+}
+
 export async function canAccessWorkspace(workspaceId: string, userId: string) {
   const rows = await db
     .select()

@@ -3,18 +3,26 @@ import { db } from "@/db";
 import { workspaces } from "@/db/schema";
 import { and, asc, eq, or, isNull } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth";
-import { canAccessWorkspace } from "@/lib/workspace";
+import { canAccessWorkspace, ensureDefaultWorkspace } from "@/lib/workspace";
 
 export async function GET() {
   const auth = await requireAuth();
   if (!auth.user) return auth.response!;
 
   try {
-    const all = await db
+    let all = await db
       .select()
       .from(workspaces)
       .where(or(eq(workspaces.ownerId, auth.user.id), isNull(workspaces.ownerId)))
       .orderBy(asc(workspaces.name));
+
+    // First run: create the default workspace on the spot so the UI is
+    // immediately usable (workspace selector, threads, chat input).
+    if (all.length === 0) {
+      const created = await ensureDefaultWorkspace(auth.user.id);
+      if (created) all = [created];
+    }
+
     return NextResponse.json(all);
   } catch (err) {
     console.error(err);
