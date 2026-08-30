@@ -8,7 +8,7 @@ const globalForDb = globalThis as typeof globalThis & {
 
 function getDb(): ReturnType<typeof drizzle> {
   if (!globalForDb.__cognosDb) {
-    const databaseUrl =postgresql://neondb_owner:npg_2DCkWup9JZRm@ep-tiny-dawn-a5vc6fat-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require process.env.DATABASE_URL;
+    const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) {
       throw new Error(
         "DATABASE_URL is required. Add it to your environment variables (Vercel Settings > Environment Variables), or set it in .env for local development."
