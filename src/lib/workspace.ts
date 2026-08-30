@@ -1,36 +1,43 @@
 import { db } from "@/db";
 import { workspaces } from "@/db/schema";
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, or, isNull } from "drizzle-orm";
 
-export async function getOrCreateDefaultWorkspace() {
-  const existing = await db
+export async function getOrCreateDefaultWorkspace(userId: string) {
+  const owned = await db
     .select()
     .from(workspaces)
+    .where(eq(workspaces.ownerId, userId))
     .orderBy(desc(workspaces.isDefault), asc(workspaces.createdAt))
     .limit(1);
 
-  if (existing.length > 0) return existing[0];
+  if (owned.length > 0) return owned[0];
 
-  // Small race guard: if two processes try at once, one insert wins and the
-  // other can read it immediately after the conflict.
-  try {
-    const [created] = await db
-      .insert(workspaces)
-      .values({
-        name: "Personal",
-        description: "Your default workspace",
-        isDefault: true,
-      })
-      .onConflictDoNothing({ target: workspaces.id })
-      .returning();
-    if (created) return created;
-  } catch {
-    // fall through to re-read
-  }
+  // Legacy default (created before accounts existed) is shared by everyone
+  // until an owned workspace exists.
+  const legacy = await db
+    .select()
+    .from(workspaces)
+    .where(isNull(workspaces.ownerId))
+    .orderBy(desc(workspaces.isDefault), asc(workspaces.createdAt))
+    .limit(1);
+  if (legacy.length > 0) return legacy[0];
+
+  const [created] = await db
+    .insert(workspaces)
+    .values({
+      ownerId: userId,
+      name: "Personal",
+      description: "Your default workspace",
+      isDefault: true,
+    })
+    .onConflictDoNothing({ target: workspaces.id })
+    .returning();
+  if (created) return created;
 
   const again = await db
     .select()
     .from(workspaces)
+    .where(eq(workspaces.ownerId, userId))
     .orderBy(desc(workspaces.isDefault), asc(workspaces.createdAt))
     .limit(1);
   if (again.length > 0) return again[0];
@@ -38,14 +45,36 @@ export async function getOrCreateDefaultWorkspace() {
   throw new Error("Unable to create or find a default workspace");
 }
 
-export async function resolveWorkspaceId(requested?: string | null) {
+export async function canAccessWorkspace(workspaceId: string, userId: string) {
+  const rows = await db
+    .select()
+    .from(workspaces)
+    .where(
+      and(
+        eq(workspaces.id, workspaceId),
+        or(eq(workspaces.ownerId, userId), isNull(workspaces.ownerId))
+      )
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+export async function resolveWorkspaceId(
+  requested: string | null | undefined,
+  userId: string
+) {
   if (requested) {
     const found = await db
       .select()
       .from(workspaces)
-      .where(eq(workspaces.id, requested))
+      .where(
+        and(
+          eq(workspaces.id, requested),
+          or(eq(workspaces.ownerId, userId), isNull(workspaces.ownerId))
+        )
+      )
       .limit(1);
     if (found.length > 0) return found[0];
   }
-  return getOrCreateDefaultWorkspace();
+  return getOrCreateDefaultWorkspace(userId);
 }

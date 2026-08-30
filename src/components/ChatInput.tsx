@@ -1,16 +1,42 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import type { DocumentRecord } from "@/types/cognos";
+import { useSpeechRecognition } from "@/hooks/use-voice";
 
 type Props = {
-  onSend: (content: string, showTrace: boolean) => void;
+  onSend: (
+    content: string,
+    showTrace: boolean,
+    webSearch: boolean,
+    attachments: string[]
+  ) => void;
   disabled: boolean;
+  isProcessing?: boolean;
+  onStop?: () => void;
+  availableDocuments?: DocumentRecord[];
 };
 
-export default function ChatInput({ onSend, disabled }: Props) {
+export default function ChatInput({
+  onSend,
+  disabled,
+  isProcessing,
+  onStop,
+  availableDocuments = [],
+}: Props) {
   const [value, setValue] = useState("");
   const [showTrace, setShowTrace] = useState(false);
+  const [webSearch, setWebSearch] = useState(false);
+  const [showAttach, setShowAttach] = useState(false);
+  const [attachments, setAttachments] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { supported: micSupported, listening, interim, start, stop } =
+    useSpeechRecognition((text) =>
+      setValue((prev) => (prev.trim() ? prev.trim() + " " : "") + text)
+    );
+
+  const displayText =
+    listening && interim ? (value ? value + " " : "") + interim : value;
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -22,8 +48,10 @@ export default function ChatInput({ onSend, disabled }: Props) {
   const handleSend = () => {
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
-    onSend(trimmed, showTrace);
+    onSend(trimmed, showTrace, webSearch, attachments);
     setValue("");
+    setAttachments([]);
+    setShowAttach(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -54,12 +82,12 @@ export default function ChatInput({ onSend, disabled }: Props) {
       >
         <textarea
           ref={textareaRef}
-          value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Speak to COGNOS…"
-          disabled={disabled}
+          placeholder={listening ? "Listening…" : "Speak to COGNOS…"}
+          disabled={disabled || listening}
           rows={1}
+          value={displayText}
           className="flex-1 text-sm outline-none resize-none bg-transparent leading-relaxed"
           style={{
             color: "#e2e8f0",
@@ -67,20 +95,46 @@ export default function ChatInput({ onSend, disabled }: Props) {
             maxHeight: "160px",
           }}
         />
-        <button
-          onClick={handleSend}
-          disabled={!value.trim() || disabled}
-          className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all"
-          style={{
-            background:
-              value.trim() && !disabled
-                ? "linear-gradient(135deg, #4f7aff, #7c3aed)"
-                : "#1a1f3a",
-            color: value.trim() && !disabled ? "white" : "#334155",
-          }}
-        >
-          ↑
-        </button>
+        {micSupported && (
+          <button
+            onClick={() => (listening ? stop() : start())}
+            className={`flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center text-sm transition-all ${
+              listening ? "animate-pulse" : ""
+            }`}
+            style={{
+              background: listening ? "#7f1d1d" : "#1a1f3a",
+              color: listening ? "#fecaca" : "#64748b",
+            }}
+            title={listening ? "Stop listening" : "Speak"}
+          >
+            {listening ? "◼" : "◉"}
+          </button>
+        )}
+        {isProcessing && onStop ? (
+          <button
+            onClick={onStop}
+            className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center"
+            style={{ background: "#7f1d1d", color: "#fecaca" }}
+            title="Stop generating"
+          >
+            ■
+          </button>
+        ) : (
+          <button
+            onClick={handleSend}
+            disabled={!value.trim() || disabled}
+            className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all"
+            style={{
+              background:
+                value.trim() && !disabled
+                  ? "linear-gradient(135deg, #4f7aff, #7c3aed)"
+                  : "#1a1f3a",
+              color: value.trim() && !disabled ? "white" : "#334155",
+            }}
+          >
+            ↑
+          </button>
+        )}
       </div>
 
       {/* Options row */}
@@ -102,6 +156,42 @@ export default function ChatInput({ onSend, disabled }: Props) {
           Council trace
         </button>
         <span className="text-xs" style={{ color: "#1e293b" }}>•</span>
+        <button
+          onClick={() => setWebSearch(!webSearch)}
+          className="flex items-center gap-1.5 text-xs transition-colors"
+          style={{ color: webSearch ? "#34d399" : "#334155" }}
+        >
+          <span
+            className="w-3 h-3 rounded-sm border flex items-center justify-center"
+            style={{
+              borderColor: webSearch ? "#34d399" : "#1e293b",
+              background: webSearch ? "#34d399" : "transparent",
+            }}
+          >
+            {webSearch && <span className="text-white text-xs leading-none">✓</span>}
+          </span>
+          Web search
+        </button>
+        <span className="text-xs" style={{ color: "#1e293b" }}>•</span>
+        <button
+          onClick={() => setShowAttach(!showAttach)}
+          className="flex items-center gap-1.5 text-xs transition-colors"
+          style={{ color: showAttach || attachments.length ? "#c7d2fe" : "#334155" }}
+        >
+          <span
+            className="w-3 h-3 rounded-sm border flex items-center justify-center"
+            style={{
+              borderColor: showAttach || attachments.length ? "#c7d2fe" : "#1e293b",
+              background: showAttach || attachments.length ? "#1e3a5f" : "transparent",
+            }}
+          >
+            {attachments.length > 0 && (
+              <span className="text-white text-[9px] leading-none">{attachments.length}</span>
+            )}
+          </span>
+          Attach
+        </button>
+        <span className="text-xs" style={{ color: "#1e293b" }}>•</span>
         <span className="text-xs" style={{ color: "#1e293b" }}>
           Shift+Enter for newline
         </span>
@@ -109,6 +199,45 @@ export default function ChatInput({ onSend, disabled }: Props) {
           One Voice. Many Minds.
         </span>
       </div>
+
+      {showAttach && (
+        <div className="mt-2 rounded-xl p-3" style={{ background: "#0c0f1e", border: "1px solid #1a1f3a" }}>
+          <div className="text-xs mb-2" style={{ color: "#475569" }}>
+            Reference documents for this message
+          </div>
+          {availableDocuments.length === 0 ? (
+            <div className="text-xs" style={{ color: "#334155" }}>
+              Add documents in the Documents module first.
+            </div>
+          ) : (
+            <div className="space-y-1 max-h-40 overflow-y-auto">
+              {availableDocuments.map((doc) => {
+                const active = attachments.includes(doc.id);
+                return (
+                  <button
+                    key={doc.id}
+                    onClick={() =>
+                      setAttachments((prev) =>
+                        active ? prev.filter((x) => x !== doc.id) : [...prev, doc.id]
+                      )
+                    }
+                    className="w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded-lg text-left"
+                    style={{
+                      background: active ? "#4f7aff18" : "#080b18",
+                      border: `1px solid ${active ? "#4f7aff44" : "#1a1f3a"}`,
+                      color: active ? "#c7d2fe" : "#64748b",
+                    }}
+                  >
+                    <span>{active ? "✓" : "○"}</span>
+                    <span className="truncate flex-1">{doc.name}</span>
+                    <span style={{ color: "#334155" }}>{doc.category}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

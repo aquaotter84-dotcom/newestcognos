@@ -76,10 +76,39 @@ export const auditEventTypeEnum = pgEnum("audit_event_type", [
   "error",
 ]);
 
+// ─── Users ───────────────────────────────────────────────────────────────────
+
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  name: text("name").notNull().default(""),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role").notNull().default("user"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const authSessions = pgTable("auth_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  token: text("token").notNull().unique(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 // ─── Workspaces ─────────────────────────────────────────────────────────────
 
 export const workspaces = pgTable("workspaces", {
   id: uuid("id").primaryKey().defaultRandom(),
+  ownerId: uuid("owner_id").references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description").default(""),
   instructions: text("instructions").default(""),
@@ -159,6 +188,7 @@ export const memories = pgTable("memories", {
   volatility: volatilityEnum("volatility").notNull().default("medium"),
   isEnabled: boolean("is_enabled").notNull().default(true),
   source: text("source"),
+  sharedWorkspaceIds: jsonb("shared_workspace_ids").$type<string[]>().default([]),
   lastConfirmed: timestamp("last_confirmed", { withTimezone: true }).defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -167,6 +197,35 @@ export const memories = pgTable("memories", {
     .notNull()
     .defaultNow(),
   expiresAt: timestamp("expires_at", { withTimezone: true }),
+});
+
+// ─── Documents ───────────────────────────────────────────────────────────────
+
+export const documents = pgTable("documents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  sessionId: uuid("session_id").references(() => sessions.id, {
+    onDelete: "set null",
+  }),
+  name: text("name").notNull(),
+  source: text("source").notNull().default("upload"),
+  fileUrl: text("file_url"),
+  fileType: text("file_type"),
+  mimeType: text("mime_type"),
+  category: text("category").notNull().default("document"),
+  contentText: text("content_text"),
+  summary: text("summary"),
+  analysis: text("analysis"),
+  processingStatus: statusEnum("processing_status").notNull().default("pending"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 // ─── Insights (autonomous council deliberation) ──────────────────────────────

@@ -4,6 +4,7 @@ import { workspaces, memories, messages, sessions, auditEvents, insights } from 
 import { desc, eq } from "drizzle-orm";
 import { runCouncil } from "@/lib/council";
 import { resolveWorkspaceId } from "@/lib/workspace";
+import { requireAuth } from "@/lib/auth";
 
 const VALID_TASK_TYPES = [
   "conversation",
@@ -25,9 +26,12 @@ function taskTypeFromValue(value: unknown): (typeof VALID_TASK_TYPES)[number] {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const body = await request.json();
-    const workspace = await resolveWorkspaceId(body.workspaceId);
+    const workspace = await resolveWorkspaceId(body.workspaceId, auth.user.id);
     const topic = String(body.topic || "").trim();
     if (!topic) {
       return NextResponse.json({ error: "topic required" }, { status: 400 });

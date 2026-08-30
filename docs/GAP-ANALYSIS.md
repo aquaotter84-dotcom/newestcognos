@@ -1,64 +1,44 @@
-# COGNOS — Base44 → open-source gap analysis
+# COGNOS — Base44 → open-source gap analysis (updated)
 
 Reference repo: `aquaotter84-dotcom/cognitive-acuity` (Base44 export)
-Target repo: `aquaotter84-dotcom/newestcognos` (this open-source Next.js rewrite)
+Target repo: `aquaotter84-dotcom/newestcognos` (open-source Next.js rewrite)
 
-## What the Base44 version had
+## Done in this branch
 
-The Base44 export is a Vite + React + Base44 SDK app with:
+The open-source app now covers most of the Base44 product surface without the Base44 SDK:
 
-- **Multi-user auth** (Google, email + OTP, forgot/reset password) powered by Base44's platform.
-- **Workspaces** — create/switch/edit, members, workspace-level instructions.
-- **Chat** — conversations, attachments, camera/screen capture, voice conversation mode, auto-speak, web-search toggle, communication style selector, council trace, streaming, stop generation, summarization.
-- **Threads** — library view with search, rename, delete, and branch.
-- **Memory** — enriched fields (type episodic/semantic/working, importance, evidence_level, volatility, enabled), sharing between workspaces.
-- **Documents** — upload files, VisionCapture (camera/screen), Google Drive imports, text extraction, and analysis.
-- **Insights** — autonomous daily/scheduled/manual council deliberations.
-- **Beliefs** — deterministic belief snapshots, evidence propagation, relationship graph.
-- **Dynamics** — change events (evidence added/removed/reweighted, belief emerged/revised/collapsed).
-- **Activity** — audit trail (agent invocations, model calls, memory operations, tools, errors).
-- **System map** — 3D/architecture visual.
-- **Agent app** — autonomous council runner.
-- **Settings** — user stats, logout, account deletion.
-- **Backend functions** — chatOrchestrate (context assembly, council, web search, memory extraction, audit, summarization), consolidateMemories, deriveBeliefs, runCouncilAutonomous, externalLLM, deleteAccount.
+- **Accounts** — email/password register, login, logout, hard delete; per-user data isolation.
+- **Workspaces** — CRUD, switching, per-workspace instructions, and per-user default creation.
+- **Council chat** — Observer → Strategist → Specialist → Synthesizer → Critic (best-effort revision) → Governor → unified response.
+- **Web search** — DuckDuckGo fallback plus Tavily/Exa provider support, with a chat toggle and trace display.
+- **Documents** — file/URL/pasted-text ingestion, text + basic PDF extraction, summary/analysis, and attach-to-chat support.
+- **Voice** — browser speech-to-text input and auto-speak output.
+- **Streaming / stop** — client-side typewriter reveal plus an abort/stop control.
+- **Threads** — search, rename, delete, branch.
+- **Memory** — enriched fields, auto-extraction from turns, workspace sharing/revoke, activity logging.
+- **Insights** — manual autonomous runs and scheduled daily briefings.
+- **Activity** — audit trail.
+- **Markdown** — real markdown rendering in chat bubbles.
+- **Schema** — workspace-aware Postgres model with `src/db/schema.sql` (fresh) and `src/db/migrate.sql` (upgrade).
 
-## What this open-source rewrite does now
+## Remaining gaps
 
-This rewrite keeps the same product concept but avoids the Base44 SDK/runtime. It now has:
+### Medium / nice-to-have
+1. **Web search reliability** — the DuckDuckGo HTML path is a best-effort fallback; a paid provider key is recommended for production.
+2. **Deterministic belief derivation** — the Beliefs page is a derived view of enabled memories. Full deterministic evidence propagation and belief snapshots (Base44's `deriveBeliefs` / `BeliefSnapshot`) are not implemented.
+3. **Memory consolidation** — a nightly consolidation pass that collapses duplicate/overlapping memory entries is not implemented (the daily briefing exists).
+4. **Full vision / screen / camera ingestion** — image documents are stored but marked as needing a vision transcript; true multimodal analysis is not wired.
+5. **Conversation mode** — continuous conversation-mode UI around speech (Base44's phone-style overlay) is not implemented; single-turn speech input is.
+6. **OAuth / Google sign-in** — only email/password is available.
+7. **Email delivery** — forgot-password form exists but does not send email.
 
-- Council chat with six operators (Observer, Strategist, Specialist, Synthesizer, Critic, Governor) + best-effort revision loop.
-- Workspace-aware Postgres schema and CRUD.
-- Threads (search / rename / delete / open).
-- Enriched memory manager (tier, type, importance, evidence, volatility, enabled) with automatic extraction from turns.
-- Autonomous insights runner + insights list.
-- Activity audit trail.
-- System map, beliefs view, dynamics timeline.
-- Settings and workspaces pages.
-- Docs placeholder for the document pipeline.
+### Low / polish
+8. **Per-workspace model overrides** and a model settings UI.
+9. **PWA / mobile safe-area / pull-to-refresh polish.**
+10. **Audit coverage for document deletes/updates** (currently chat and memory mutations are logged).
 
-## Remaining gaps, in priority order
+## Decisions still open
 
-### High (most product impact)
-1. **Auth / accounts** — the Base44 app logged users in. This build is single-tenant with a shared default workspace. Adding real auth (email/password or OAuth, sessions, per-user workspaces) is the biggest remaining gap.
-2. **Document ingestion** — file upload, camera/screen capture, text extraction, and analysis. Needs a storage provider (Supabase, S3, Vercel Blob) plus a `documents` table and `vision` UI.
-3. **Web search** — a real search tool in the Observer/council path (Base44 had a web-search toggle and results in the trace).
-
-### Medium (feature parity)
-4. **Voice** — speech-to-text input, conversation mode, and auto-speak on responses.
-5. **Streaming + stop** — token-level streaming of the final response and an abort/stop control.
-6. **Branching threads** — copy a conversation into a new branch.
-7. **Attachments in chat** — upload files/images and feed extracted content into the council context.
-8. **Memory sharing** — share a memory into another workspace (consent / revoke).
-9. **Belief derivation** — deterministic belief snapshot propagation and relationship graph instead of the current derived view.
-10. **Consolidation / scheduling** — nightly memory consolidation and scheduled daily briefings.
-11. **Account deletion** — erase all records and sign out (already schemas exist, route not wired).
-
-### Low (polish / self-host niceties)
-12. **Mobile pull-to-refresh, safe-area, native PWA** polish.
-13. **Better markdown rendering** (code syntax/render blocks rather than regex).
-14. **Per-workspace model overrides** and model settings UI.
-15. **Audit all memory/document/workspace mutations** as activity events.
-
-## Decision needed
-
-The biggest open question is **auth**: do you want this to remain a single-user / single-tenant tool, or should I build full multi-user accounts with per-user data isolation next? That decision determines how much of the remaining work is a strict port vs. a redesign.
+- Do you want **full multimodal document analysis** (images via vision) or is text/PDF enough for now?
+- Do you want **OAuth/Google** accounts, or is email/password sufficient?
+- Do you want a **nightly consolidation job** scheduled via Vercel cron / GitHub Actions, or is the manual daily briefing sufficient?

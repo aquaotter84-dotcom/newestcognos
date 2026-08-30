@@ -37,10 +37,34 @@ DO $$ BEGIN
   CREATE TYPE audit_event_type AS ENUM ('agent_invocation', 'model_call', 'memory_operation', 'tool_call', 'error');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+-- ─── Users ───────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS users (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email         text NOT NULL UNIQUE,
+  name          text NOT NULL DEFAULT '',
+  password_hash text NOT NULL,
+  role          text NOT NULL DEFAULT 'user',
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  token      text NOT NULL UNIQUE,
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_token ON auth_sessions(token);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+
 -- ─── Workspaces ─────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS workspaces (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id       uuid REFERENCES users(id) ON DELETE CASCADE,
   name           text NOT NULL,
   description    text DEFAULT '',
   instructions   text DEFAULT '',
@@ -98,11 +122,36 @@ CREATE TABLE IF NOT EXISTS memories (
   volatility       volatility NOT NULL DEFAULT 'medium',
   is_enabled       boolean NOT NULL DEFAULT true,
   source           text,
+  shared_workspace_ids jsonb DEFAULT '[]',
   last_confirmed   timestamptz DEFAULT now(),
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now(),
   expires_at       timestamptz
 );
+
+-- ─── Documents ──────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS documents (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id      uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  session_id        uuid REFERENCES sessions(id) ON DELETE SET NULL,
+  name              text NOT NULL,
+  source            text NOT NULL DEFAULT 'upload',
+  file_url          text,
+  file_type         text,
+  mime_type         text,
+  category          text NOT NULL DEFAULT 'document',
+  content_text      text,
+  summary           text,
+  analysis          text,
+  processing_status status NOT NULL DEFAULT 'pending',
+  error_message     text,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_documents_workspace ON documents(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_documents_created ON documents(created_at DESC);
 
 -- ─── Insights ───────────────────────────────────────────────────────────────
 

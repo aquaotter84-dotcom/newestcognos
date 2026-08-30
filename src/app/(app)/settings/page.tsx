@@ -1,15 +1,33 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import { useCognos } from "@/lib/cognos-context";
 
 export default function SettingsPage() {
-  const { activeWorkspace, workspaces, sessions } = useCognos();
+  const router = useRouter();
+  const { activeWorkspace, workspaces, sessions, currentUser, logout } = useCognos();
   const [health, setHealth] = useState<{ ok: boolean } | null>(null);
   const [memoryCount, setMemoryCount] = useState(0);
   const [insightCount, setInsightCount] = useState(0);
   const [activityCount, setActivityCount] = useState(0);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDeleteAccount = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/auth/delete-account", { method: "POST" });
+      if (res.ok) {
+        router.push("/register");
+      } else {
+        setDeleting(false);
+      }
+    } catch {
+      setDeleting(false);
+    }
+  };
 
   useEffect(() => {
     fetch("/api/health")
@@ -76,6 +94,58 @@ export default function SettingsPage() {
                 </span>
               </Row>
             </div>
+          </section>
+
+          <section className="rounded-2xl p-6" style={{ background: "#0c0f1e", border: "1px solid #1a1f3a" }}>
+            <h2 className="text-sm font-semibold mb-4" style={{ color: "#c7d2fe" }}>Account</h2>
+            <Row label="Email">
+              <span className="text-sm" style={{ color: "#94a3b8" }}>{currentUser?.email || "—"}</span>
+            </Row>
+            <Row label="Name">
+              <span className="text-sm" style={{ color: "#94a3b8" }}>{currentUser?.name || "—"}</span>
+            </Row>
+            <Row label="Role">
+              <span className="text-sm" style={{ color: "#94a3b8" }}>{currentUser?.role || "user"}</span>
+            </Row>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => logout().then(() => router.push("/login"))}
+                className="text-sm px-4 py-2 rounded-lg"
+                style={{ background: "#1a1f3a", color: "#fca5a5" }}
+              >
+                Sign out
+              </button>
+              {!confirmDelete ? (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="text-sm px-4 py-2 rounded-lg"
+                  style={{ background: "#7f1d1d", color: "#fecaca" }}
+                >
+                  Delete account
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={handleDeleteAccount}
+                    disabled={deleting}
+                    className="text-sm px-4 py-2 rounded-lg"
+                    style={{ background: "#dc2626", color: "white" }}
+                  >
+                    {deleting ? "Deleting…" : "Confirm delete"}
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    className="text-sm px-4 py-2 rounded-lg"
+                    style={{ background: "#1a1f3a", color: "#64748b" }}
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
+            </div>
+            <p className="text-xs mt-3" style={{ color: "#334155" }}>
+              Deleting your account removes your workspaces, threads, messages, memories, documents, and insights.
+            </p>
           </section>
 
           <section className="rounded-2xl p-6" style={{ background: "#0c0f1e", border: "1px solid #1a1f3a" }}>

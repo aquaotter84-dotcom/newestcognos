@@ -2,13 +2,19 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { sessions } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
-import { resolveWorkspaceId } from "@/lib/workspace";
+import { requireAuth } from "@/lib/auth";
+import { canAccessWorkspace, resolveWorkspaceId } from "@/lib/workspace";
 
 export async function GET(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const { searchParams } = new URL(request.url);
-    const requestedWorkspace = searchParams.get("workspaceId");
-    const workspace = await resolveWorkspaceId(requestedWorkspace);
+    const workspace = await resolveWorkspaceId(
+      searchParams.get("workspaceId"),
+      auth.user.id
+    );
 
     const allSessions = await db
       .select()
@@ -25,9 +31,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const body = await request.json().catch(() => ({}));
-    const workspace = await resolveWorkspaceId(body.workspaceId);
+    const workspace = await resolveWorkspaceId(body.workspaceId, auth.user.id);
     const title = body.title ?? "New Session";
 
     const [session] = await db
@@ -47,11 +56,22 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const body = await request.json().catch(() => ({}));
     const id = body.id;
     if (!id) {
       return NextResponse.json({ error: "id required" }, { status: 400 });
+    }
+    const [existing] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, id))
+      .limit(1);
+    if (!existing || !(await canAccessWorkspace(existing.workspaceId, auth.user.id))) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
     const [updated] = await db
       .update(sessions)

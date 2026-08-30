@@ -2,12 +2,16 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { insights } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
-import { resolveWorkspaceId } from "@/lib/workspace";
+import { resolveWorkspaceId, canAccessWorkspace } from "@/lib/workspace";
+import { requireAuth } from "@/lib/auth";
 
 export async function GET(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const { searchParams } = new URL(request.url);
-    const workspace = await resolveWorkspaceId(searchParams.get("workspaceId"));
+    const workspace = await resolveWorkspaceId(searchParams.get("workspaceId"), auth.user.id);
     const all = await db
       .select()
       .from(insights)
@@ -22,9 +26,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const body = await request.json();
-    const workspace = await resolveWorkspaceId(body.workspaceId);
+    const workspace = await resolveWorkspaceId(body.workspaceId, auth.user.id);
     const title = String(body.title || "").trim();
     const content = String(body.content || "").trim();
     if (!title || !content) {
@@ -52,10 +59,18 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const body = await request.json();
     const id = body.id;
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+    const [existing] = await db.select().from(insights).where(eq(insights.id, id)).limit(1);
+    if (!existing || !(await canAccessWorkspace(existing.workspaceId, auth.user.id))) {
+      return NextResponse.json({ error: "Insight not found" }, { status: 404 });
+    }
 
     const [insight] = await db
       .update(insights)
@@ -75,10 +90,19 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+    const [existing] = await db.select().from(insights).where(eq(insights.id, id)).limit(1);
+    if (!existing || !(await canAccessWorkspace(existing.workspaceId, auth.user.id))) {
+      return NextResponse.json({ error: "Insight not found" }, { status: 404 });
+    }
+
     await db.delete(insights).where(eq(insights.id, id));
     return NextResponse.json({ ok: true });
   } catch (err) {

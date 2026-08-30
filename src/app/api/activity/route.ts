@@ -3,11 +3,15 @@ import { db } from "@/db";
 import { auditEvents } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { resolveWorkspaceId } from "@/lib/workspace";
+import { requireAuth } from "@/lib/auth";
 
 export async function GET(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const { searchParams } = new URL(request.url);
-    const workspace = await resolveWorkspaceId(searchParams.get("workspaceId"));
+    const workspace = await resolveWorkspaceId(searchParams.get("workspaceId"), auth.user.id);
     const all = await db
       .select()
       .from(auditEvents)

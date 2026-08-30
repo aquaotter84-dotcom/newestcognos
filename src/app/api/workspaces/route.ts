@@ -1,11 +1,20 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { workspaces } from "@/db/schema";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, or, isNull } from "drizzle-orm";
+import { requireAuth } from "@/lib/auth";
+import { canAccessWorkspace } from "@/lib/workspace";
 
 export async function GET() {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
-    const all = await db.select().from(workspaces).orderBy(asc(workspaces.name));
+    const all = await db
+      .select()
+      .from(workspaces)
+      .where(or(eq(workspaces.ownerId, auth.user.id), isNull(workspaces.ownerId)))
+      .orderBy(asc(workspaces.name));
     return NextResponse.json(all);
   } catch (err) {
     console.error(err);
@@ -14,6 +23,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const body = await request.json().catch(() => ({}));
     const name = String(body.name || "").trim();
@@ -21,28 +33,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Workspace name is required" }, { status: 400 });
     }
 
-    const existing = await db.select().from(workspaces).limit(1);
-    if (existing.length === 0) {
-      const [ws] = await db
-        .insert(workspaces)
-        .values({
-          name,
-          description: String(body.description || ""),
-          instructions: String(body.instructions || ""),
-          color: String(body.color || "#3B82F6"),
-          icon: String(body.icon || "Brain"),
-          isDefault: true,
-          memberEmails: Array.isArray(body.memberEmails)
-            ? body.memberEmails
-            : [],
-        })
-        .returning();
-      return NextResponse.json(ws, { status: 201 });
-    }
-
     const [ws] = await db
       .insert(workspaces)
       .values({
+        ownerId: auth.user.id,
         name,
         description: String(body.description || ""),
         instructions: String(body.instructions || ""),
@@ -62,11 +56,17 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const body = await request.json().catch(() => ({}));
     const id = body.id;
     if (!id) {
       return NextResponse.json({ error: "id required" }, { status: 400 });
+    }
+    if (!(await canAccessWorkspace(id, auth.user.id))) {
+      return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
     }
     const [updated] = await db
       .update(workspaces)
@@ -92,17 +92,40 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-    const all = await db.select().from(workspaces).limit(2);
-    if (all.length <= 1) {
+    if (!(await canAccessWorkspace(id, auth.user.id))) {
+      return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+    }
+
+    const accessible = await db
+      .select()
+      .from(workspaces)
+      .where(
+        and(
+          or(eq(workspaces.ownerId, auth.user.id), isNull(workspaces.ownerId)),
+          eq(workspaces.id, id)
+        )
+      )
+      .limit(1);
+    const remaining = await db
+      .select()
+      .from(workspaces)
+      .where(or(eq(workspaces.ownerId, auth.user.id), isNull(workspaces.ownerId)))
+      .limit(2);
+
+    if (accessible.length > 0 && remaining.length <= 1) {
       return NextResponse.json(
         { error: "Cannot delete the last workspace" },
         { status: 400 }
       );
     }
+
     await db.delete(workspaces).where(eq(workspaces.id, id));
     return NextResponse.json({ ok: true });
   } catch (err) {

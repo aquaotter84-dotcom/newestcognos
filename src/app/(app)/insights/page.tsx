@@ -10,6 +10,7 @@ export default function InsightsPage() {
   const [insights, setInsights] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [briefing, setBriefing] = useState(false);
 
   const load = useCallback(async () => {
     if (!activeWorkspace) return;
@@ -42,19 +43,46 @@ export default function InsightsPage() {
     setConfirmId(null);
   };
 
+  const runBriefing = async () => {
+    setBriefing(true);
+    try {
+      const res = await fetch("/api/insights/briefing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId: activeWorkspace?.id }),
+      });
+      if (res.ok) await load();
+    } finally {
+      setBriefing(false);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <PageHeader
         title="Insights"
         subtitle="Autonomous council deliberations and daily briefings"
         actions={
-          <a
-            href="/agent"
-            className="text-sm px-3 py-1.5 rounded-lg font-medium"
-            style={{ background: "#4f7aff", color: "white" }}
-          >
-            Run deliberation
-          </a>
+          <>
+            <button
+              onClick={runBriefing}
+              disabled={briefing || !activeWorkspace}
+              className="text-sm px-3 py-1.5 rounded-lg font-medium"
+              style={{
+                background: briefing ? "#1a1f3a" : "#1e3a8a",
+                color: briefing ? "#64748b" : "#c7d2fe",
+              }}
+            >
+              {briefing ? "Briefing…" : "Daily briefing"}
+            </button>
+            <a
+              href="/agent"
+              className="text-sm px-3 py-1.5 rounded-lg font-medium"
+              style={{ background: "#4f7aff", color: "white" }}
+            >
+              Run deliberation
+            </a>
+          </>
         }
       />
       <div className="flex-1 overflow-y-auto p-4">

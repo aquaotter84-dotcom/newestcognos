@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { messages, sessions, memories, auditEvents, workspaces } from "@/db/schema";
-import { eq, desc, asc } from "drizzle-orm";
+import { messages, sessions, memories, auditEvents, workspaces, documents } from "@/db/schema";
+import { eq, desc, asc, inArray } from "drizzle-orm";
 import {
   runCouncil,
   extractMemories,
   summarizeConversation,
 } from "@/lib/council";
 import type { MemoryExtraction } from "@/lib/council";
+import { requireAuth } from "@/lib/auth";
+import { canAccessWorkspace } from "@/lib/workspace";
+import { getDocumentContext } from "@/lib/documents";
 
 const VALID_TIERS = ["short", "medium", "long", "mythic"] as const;
 type Tier = (typeof VALID_TIERS)[number];
@@ -55,6 +58,9 @@ function tierFromMemoryType(memoryType: string): Tier {
 }
 
 export async function GET(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   const { searchParams } = new URL(request.url);
   const sessionId = searchParams.get("sessionId");
   if (!sessionId) {
@@ -62,6 +68,10 @@ export async function GET(request: Request) {
   }
 
   try {
+    const [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    if (!session || !(await canAccessWorkspace(session.workspaceId, auth.user.id))) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
     const msgs = await db
       .select()
       .from(messages)
@@ -75,10 +85,13 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   let start = Date.now();
   try {
     const body = await request.json();
-    const { sessionId, content, showTrace, style } = body;
+    const { sessionId, content, showTrace, style, webSearch, attachments } = body;
 
     if (!sessionId || !content) {
       return NextResponse.json(
@@ -92,7 +105,7 @@ export async function POST(request: Request) {
       .from(sessions)
       .where(eq(sessions.id, sessionId))
       .limit(1);
-    if (!session) {
+    if (!session || !(await canAccessWorkspace(session.workspaceId, auth.user.id))) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
@@ -146,9 +159,33 @@ export async function POST(request: Request) {
             .join("\n")
         : "";
 
+    // Document context for the workspace (best-effort)
+    const documentContext = await getDocumentContext(workspace.id);
+
+    // Selected attachments for this specific turn
+    const attachmentIds = Array.isArray(attachments)
+      ? attachments.filter(Boolean).slice(0, 6)
+      : [];
+    const attachmentDocs = attachmentIds.length
+      ? await db
+          .select()
+          .from(documents)
+          .where(inArray(documents.id, attachmentIds))
+          .limit(6)
+      : [];
+    const attachmentContext = attachmentDocs
+      .filter((d) => d.contentText)
+      .map((d) => `Attached document: ${d.name}\n${d.contentText?.slice(0, 5000) || ""}`)
+      .join("\n\n");
+
     // Run the council
-    const trace = await runCouncil(content, memoryContext, conversationHistory, {
+    const councilContext = [memoryContext, documentContext, attachmentContext]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const trace = await runCouncil(content, councilContext, conversationHistory, {
       style,
+      webSearch: !!webSearch,
     });
     const latencyMs = Date.now() - start;
 

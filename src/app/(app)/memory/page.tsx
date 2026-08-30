@@ -27,7 +27,7 @@ const emptyForm: FormState = {
 };
 
 export default function MemoryPage() {
-  const { activeWorkspace } = useCognos();
+  const { activeWorkspace, workspaces } = useCognos();
   const [memories, setMemories] = useState<Memory[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -35,6 +35,8 @@ export default function MemoryPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [shareId, setShareId] = useState<string | null>(null);
+  const [shareTarget, setShareTarget] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -105,6 +107,38 @@ export default function MemoryPage() {
   const handleDelete = async (id: string) => {
     await fetch(`/api/memories?id=${id}`, { method: "DELETE" });
     setConfirmId(null);
+    await load();
+  };
+
+  const handleShare = async (id: string, target?: string) => {
+    const mem = memories.find((m) => m.id === id);
+    if (!mem) return;
+    const current = Array.isArray(mem.sharedWorkspaceIds) ? mem.sharedWorkspaceIds : [];
+    const shared = target
+      ? [...new Set([...current, target])]
+      : current;
+    await fetch("/api/memories", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, sharedWorkspaceIds: shared }),
+    });
+    setShareId(null);
+    setShareTarget("");
+    await load();
+  };
+
+  const handleRevokeShare = async (id: string, target: string) => {
+    const mem = memories.find((m) => m.id === id);
+    if (!mem) return;
+    const current = Array.isArray(mem.sharedWorkspaceIds) ? mem.sharedWorkspaceIds : [];
+    await fetch("/api/memories", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id,
+        sharedWorkspaceIds: current.filter((x) => x !== target),
+      }),
+    });
     await load();
   };
 
@@ -339,10 +373,41 @@ export default function MemoryPage() {
                           Source: {mem.sessionId.slice(0, 8)}
                         </div>
                       )}
+                      {Array.isArray(mem.sharedWorkspaceIds) && mem.sharedWorkspaceIds.length > 0 && (
+                        <div className="text-xs mt-1 flex gap-1 flex-wrap" style={{ color: "#a78bfa" }}>
+                          {mem.sharedWorkspaceIds.map((id) => (
+                            <span key={id} className="flex items-center gap-1">
+                              {workspaces.find((w) => w.id === id)?.name || id.slice(0, 8)}
+                              <button onClick={() => handleRevokeShare(mem.id, id)} className="hover:text-red-400" title="Revoke share">×</button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {confirmId !== mem.id ? (
                       <div className="flex items-center gap-1">
+                        {shareId === mem.id ? (
+                          <>
+                            <select
+                              value={shareTarget}
+                              onChange={(e) => setShareTarget(e.target.value)}
+                              className="text-xs px-1 py-1 rounded"
+                              style={{ background: "#080b18", border: "1px solid #1a1f3a", color: "#e2e8f0" }}
+                            >
+                              <option value="">Select workspace…</option>
+                              {workspaces
+                                .filter((w) => w.id !== activeWorkspace?.id && !(mem.sharedWorkspaceIds || []).includes(w.id))
+                                .map((w) => (
+                                  <option key={w.id} value={w.id}>{w.name}</option>
+                                ))}
+                            </select>
+                            <button onClick={() => shareTarget && handleShare(mem.id, shareTarget)} className="text-xs px-2 py-1 rounded-lg" style={{ background: "#4f7aff", color: "white" }}>Share</button>
+                            <button onClick={() => setShareId(null)} className="text-xs px-2 py-1 rounded-lg" style={{ color: "#64748b" }}>✕</button>
+                          </>
+                        ) : (
+                          <button onClick={() => { setShareId(mem.id); setShareTarget(""); }} className="text-xs px-2 py-1 rounded-lg" style={{ color: "#a78bfa" }} title="Share with another workspace">⇄</button>
+                        )}
                         <button onClick={() => setEditingId(mem.id)} className="text-xs px-2 py-1 rounded-lg" style={{ color: "#64748b" }} title="Edit">✎</button>
                         <button onClick={() => { setEditingId(null); setMemories((prev) => prev.map((m) => m.id === mem.id ? { ...m, isEnabled: !m.isEnabled } : m)); fetch("/api/memories", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: mem.id, isEnabled: !mem.isEnabled }) }).catch(() => {}); }} className="text-xs px-2 py-1 rounded-lg" style={{ color: mem.isEnabled ? "#64748b" : "#f59e0b" }} title="Toggle enabled">
                           {mem.isEnabled ? "·" : "✓"}

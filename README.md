@@ -14,11 +14,16 @@ This is the open-source rewrite of the Base44 “COGNOS / Cognitive-Acuity” ap
 - **Memory** — the council recommends durable memories (short / medium / long / mythic), with an enriched data model (`memory_type`, `importance`, `evidence_level`, `volatility`, `is_enabled`).
 - **Threads** — search, rename, open, and delete conversations per workspace.
 - **Workspaces** — create, edit, switch, and delete separate cognitive contexts.
-- **Insights** — autonomous one-off deliberations stored as insights.
+- **Accounts** — email/password registration, login, logout, hard delete. Data is scoped to the signed-in user and their workspaces.
+- **Insights** — autonomous one-off deliberations stored as insights, plus scheduled daily briefings for cron.
 - **Activity** — audit trail of council invocations, model calls, and memory operations.
 - **System** — visual architecture map of the pipeline.
 - **Beliefs / Dynamics** — derived view of enabled memory and a timeline of changes.
-- **Documents** — placeholder module for the next phase (upload, text extraction, and document context). The rest of the data model is ready for it.
+- **Documents** — add files, URLs, or pasted text; text/PDF extraction, LLM summary, and attachment to the council context.
+- **Voice** — speech-to-text input and an "auto-speak" output toggle.
+- **Streaming / stop** — typewriter reveal of the response and a stop control while the council is running.
+- **Branching threads** — copy a conversation into a new session.
+- **Memory sharing** — share a memory with another workspace and revoke the share.
 
 ## Stack
 
@@ -37,6 +42,7 @@ This is the open-source rewrite of the Base44 “COGNOS / Cognitive-Acuity” ap
    - optional: `BLUESMINDS_MODEL` (default `gpt_5_4`), `BLUESMINDS_API_URL` (default `https://api.bluesminds.com/v1/chat/completions`)
    - optional: `MEMORY_EXTRACTION=true|false` (memory extraction is on by default)
    - optional: `COUNCIL_MAX_REVISIONS` (default `1`), `COUNCIL_REVISION_THRESHOLD` (default `70`)
+   - optional web search: `WEB_SEARCH_PROVIDER=duckduckgo|tavily|exa` plus applicable API key (`TAVILY_API_KEY` / `EXA_API_KEY`)
 4. `npm install`
 5. `npm run dev` — open http://localhost:3000
 
@@ -53,13 +59,17 @@ This is the open-source rewrite of the Base44 “COGNOS / Cognitive-Acuity” ap
 ## API
 
 - `GET /api/health` — DB connectivity check
-- `GET/POST/PATCH /api/workspaces` — workspace list / create / update (DELETE via `?id=`)
+- `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/delete-account` — account management
+- `GET/POST/PATCH/DELETE /api/workspaces` — workspace CRUD
 - `GET/POST/PATCH /api/sessions?workspaceId=...` — session list / create / update
-- `PATCH/DELETE /api/sessions/[id]` — rename / update / delete session
-- `GET/POST /api/messages?sessionId=...` — session messages + council chat
-- `GET/POST/PATCH/DELETE /api/memories` — enriched memory CRUD (DELETE via `?id=`)
-- `GET/POST/PATCH/DELETE /api/insights` — insights list / create / update (DELETE via `?id=`)
-- `POST /api/insights/run` — run an autonomous deliberation and store it as an insight
+- `PATCH/DELETE /api/sessions/[id]` — session update / delete
+- `POST /api/sessions/[id]/branch` — copy a thread into a new session
+- `GET/POST /api/messages?sessionId=...` — session messages + council chat (supports `webSearch` and document `attachments`)
+- `GET/POST/PATCH/DELETE /api/memories` — memory CRUD, per-workspace sharing, DELETE via `?id=`
+- `GET/POST/PATCH/DELETE /api/documents` — document CRUD + text/URL/PDF ingestion
+- `GET/POST/PATCH/DELETE /api/insights` — insights CRUD
+- `POST /api/insights/run` — run one autonomous deliberation
+- `POST /api/insights/briefing` — run scheduled daily briefings (usable from cron)
 - `GET /api/activity` — activity / audit trail
 
 ## Notes

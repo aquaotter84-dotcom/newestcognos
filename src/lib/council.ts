@@ -25,6 +25,7 @@ export type CouncilTrace = {
     revisionCount: number;
     revisionTriggered: boolean;
     adaptive: { complexity: string; path: string };
+    webSearch?: WebSearchOutput | null;
   };
 };
 
@@ -35,6 +36,19 @@ export type MemoryExtraction = {
   evidence_level: "direct" | "repeated" | "inferred" | "assumed";
   volatility: "low" | "medium" | "high";
   tier: "short" | "medium" | "long" | "mythic";
+};
+
+export type WebSearchResult = {
+  title: string;
+  url: string;
+  snippet: string;
+};
+
+export type WebSearchOutput = {
+  query: string;
+  provider: string;
+  results: WebSearchResult[];
+  error?: string;
 };
 
 const DEFAULT_API_URL = "https://api.bluesminds.com/v1/chat/completions";
@@ -164,11 +178,114 @@ function bodyString(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+export async function searchWeb(
+  query: string
+): Promise<WebSearchOutput> {
+  const provider = (process.env.WEB_SEARCH_PROVIDER || "duckduckgo").toLowerCase();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  const generic = async (
+    url: string,
+    body: unknown,
+    headers: Record<string, string>,
+    mapper: (data: unknown) => WebSearchResult[]
+  ): Promise<WebSearchOutput> => {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Search provider returned ${res.status}`);
+    const data: unknown = await res.json();
+    return { query, provider, results: mapper(data) };
+  };
+
+  try {
+    if (provider === "tavily") {
+      const apiKey = process.env.TAVILY_API_KEY;
+      if (!apiKey) throw new Error("TAVILY_API_KEY is not configured");
+      return await generic(
+        "https://api.tavily.com/search",
+        { query, api_key: apiKey, max_results: 6 },
+        {},
+        (d) => {
+          const obj = (d || {}) as { results?: Array<{ title?: string; url?: string; content?: string }> };
+          return (obj.results || []).map((r) => ({
+            title: String(r.title || ""),
+            url: String(r.url || ""),
+            snippet: String(r.content || ""),
+          }));
+        }
+      );
+    }
+
+    if (provider === "exa") {
+      const apiKey = process.env.EXA_API_KEY;
+      if (!apiKey) throw new Error("EXA_API_KEY is not configured");
+      return await generic(
+        "https://api.exa.ai/search",
+        { query, numResults: 6, type: "auto" },
+        { "x-api-key": apiKey },
+        (d) => {
+          const obj = (d || {}) as { results?: Array<{ title?: string; url?: string; text?: string }> };
+          return (obj.results || []).map((r) => ({
+            title: String(r.title || ""),
+            url: String(r.url || ""),
+            snippet: String(r.text || ""),
+          }));
+        }
+      );
+    }
+
+    // DuckDuckGo HTML fallback (no API key required).
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "COGNOS/1.0 (+https://github.com/aquaotter84-dotcom/newestcognos)",
+      },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`DuckDuckGo returned ${res.status}`);
+    const html = await res.text();
+
+    const links = [
+      ...html.matchAll(
+        /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g
+      ),
+    ].slice(0, 6);
+    const snippets = [...html.matchAll(/<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g)];
+
+    const strip = (s: string) =>
+      s
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&quot;/g, '"')
+        .replace(/&amp;/g, "&")
+        .replace(/&#x27;/g, "'")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const results = links.map((m, i) => ({
+      title: strip(m[2]),
+      url: String(m[1] || "").replace("//duckduckgo.com/l/?uddg=", "").replace(/&rut=.*$/, ""),
+      snippet: snippets[i] ? strip(snippets[i][1]) : "",
+    }));
+
+    return { query, provider, results };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Search failed";
+    return { query, provider, results: [], error: message };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function runCouncil(
   userMessage: string,
   memoryContext: string,
   conversationHistory: Array<{ role: string; content: string }>,
-  opts: { model?: string; style?: Style; maxRevisions?: number } = {}
+  opts: { model?: string; style?: Style; maxRevisions?: number; webSearch?: boolean } = {}
 ): Promise<CouncilTrace> {
   const activeModel = opts.model || modelName();
   const style = opts.style || "balanced";
@@ -196,11 +313,28 @@ export async function runCouncil(
     temperature: 0.4,
   });
 
+  const classification = (observer.output.classification || {}) as Record<
+    string,
+    unknown
+  >;
+  const wantsSearch =
+    opts.webSearch === true || classification.needs_web_search === true;
+  let webSearchOutput: WebSearchOutput | null = null;
+
+  if (wantsSearch) {
+    const query =
+      String(classification.search_query || userMessage).slice(0, 200);
+    webSearchOutput = await searchWeb(query);
+  }
+
   // Strategist
   const strategist = await runOperator(
     "strategist",
     baseContext +
-      `\n\nObserver output:\n${bodyString(observer.output)}`,
+      `\n\nObserver output:\n${bodyString(observer.output)}` +
+      (webSearchOutput
+        ? `\n\nWeb search results:\n${bodyString(webSearchOutput.results)}`
+        : ""),
     userMessage,
     { temperature: 0.4 }
   );
@@ -229,10 +363,6 @@ export async function runCouncil(
     { temperature: 0.7, maxTokens: 900 }
   );
 
-  const classification = (observer.output.classification || {}) as Record<
-    string,
-    unknown
-  >;
   const complexity = String(classification.complexity || "moderate");
   const isSimple = complexity === "simple";
   const path = isSimple ? "direct" : "full";
@@ -314,6 +444,7 @@ export async function runCouncil(
       revisionCount,
       revisionTriggered,
       adaptive: { complexity, path },
+      webSearch: webSearchOutput,
     },
   };
 }

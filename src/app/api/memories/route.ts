@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { memories, auditEvents } from "@/db/schema";
-import { eq, desc } from "drizzle-orm";
-import { resolveWorkspaceId } from "@/lib/workspace";
+import { eq, desc, or, sql } from "drizzle-orm";
+import { resolveWorkspaceId, canAccessWorkspace } from "@/lib/workspace";
+import { requireAuth } from "@/lib/auth";
 
 const VALID_TIERS = ["short", "medium", "long", "mythic"];
 const VALID_TYPES = ["working", "episodic", "semantic"];
@@ -10,14 +11,22 @@ const VALID_EVIDENCE = ["direct", "repeated", "inferred", "assumed"];
 const VALID_VOLATILITY = ["low", "medium", "high"];
 
 export async function GET(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const { searchParams } = new URL(request.url);
-    const workspace = await resolveWorkspaceId(searchParams.get("workspaceId"));
+    const workspace = await resolveWorkspaceId(searchParams.get("workspaceId"), auth.user.id);
 
     const all = await db
       .select()
       .from(memories)
-      .where(eq(memories.workspaceId, workspace.id))
+      .where(
+        or(
+          eq(memories.workspaceId, workspace.id),
+          sql`${memories.sharedWorkspaceIds} @> ${JSON.stringify([workspace.id])}::jsonb`
+        )
+      )
       .orderBy(desc(memories.importance), desc(memories.updatedAt))
       .limit(200);
 
@@ -29,9 +38,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const body = await request.json();
-    const workspace = await resolveWorkspaceId(body.workspaceId);
+    const workspace = await resolveWorkspaceId(body.workspaceId, auth.user.id);
 
     const key = String(body.key || "").trim();
     const value = String(body.value || "").trim();
@@ -83,10 +95,18 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const body = await request.json();
     const id = body.id;
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+    const [existing] = await db.select().from(memories).where(eq(memories.id, id)).limit(1);
+    if (!existing || !(await canAccessWorkspace(existing.workspaceId, auth.user.id))) {
+      return NextResponse.json({ error: "Memory not found" }, { status: 404 });
+    }
 
     const [mem] = await db
       .update(memories)
@@ -112,6 +132,9 @@ export async function PATCH(request: Request) {
           ? body.volatility
           : undefined,
         isEnabled: body.isEnabled !== undefined ? body.isEnabled : undefined,
+        sharedWorkspaceIds: Array.isArray(body.sharedWorkspaceIds)
+          ? body.sharedWorkspaceIds
+          : undefined,
         updatedAt: new Date(),
       })
       .where(eq(memories.id, id))
@@ -139,6 +162,9 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const auth = await requireAuth();
+  if (!auth.user) return auth.response!;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
@@ -149,6 +175,10 @@ export async function DELETE(request: Request) {
       .from(memories)
       .where(eq(memories.id, id))
       .limit(1);
+    if (!existing || !(await canAccessWorkspace(existing.workspaceId, auth.user.id))) {
+      return NextResponse.json({ error: "Memory not found" }, { status: 404 });
+    }
+
     await db.delete(memories).where(eq(memories.id, id));
 
     if (existing) {

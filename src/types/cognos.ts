@@ -1,3 +1,10 @@
+export type User = {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+};
+
 export type Workspace = {
   id: string;
   name: string;
@@ -42,6 +49,19 @@ export type Message = {
   createdAt: string;
 };
 
+export type WebSearchResult = {
+  title: string;
+  url: string;
+  snippet: string;
+};
+
+export type WebSearchOutput = {
+  query: string;
+  provider: string;
+  results: WebSearchResult[];
+  error?: string;
+};
+
 export type CouncilTrace = {
   observer: Record<string, unknown>;
   strategist: Record<string, unknown>;
@@ -57,6 +77,7 @@ export type CouncilTrace = {
     revisionCount?: number;
     revisionTriggered?: boolean;
     adaptive?: { complexity?: string; path?: string };
+    webSearch?: WebSearchOutput | null;
   };
 };
 
@@ -75,10 +96,30 @@ export type Memory = {
   volatility: "low" | "medium" | "high";
   isEnabled: boolean;
   source: string | null;
+  sharedWorkspaceIds?: string[] | null;
   lastConfirmed: string | null;
   createdAt: string;
   updatedAt: string;
   expiresAt: string | null;
+};
+
+export type DocumentRecord = {
+  id: string;
+  workspaceId: string;
+  sessionId: string | null;
+  name: string;
+  source: string;
+  fileUrl: string | null;
+  fileType: string | null;
+  mimeType: string | null;
+  category: string;
+  contentText: string | null;
+  summary: string | null;
+  analysis: string | null;
+  processingStatus: "pending" | "processing" | "complete" | "error";
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type Insight = {

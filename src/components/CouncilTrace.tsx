@@ -21,6 +21,7 @@ export default function CouncilTrace({ trace }: Props) {
 
   const activeData =
     trace[activeTab] || { note: "This operator was skipped for this task." };
+  const webSearch = trace.latent?.webSearch;
 
   return (
     <div
@@ -117,6 +118,36 @@ export default function CouncilTrace({ trace }: Props) {
             </div>
           ))}
         </div>
+
+        {webSearch && (
+          <div className="mt-4 rounded-lg p-3" style={{ background: "#0c0f1e" }}>
+            <div className="text-xs font-mono mb-2" style={{ color: "#34d399" }}>
+              WEB SEARCH — {webSearch.provider}
+            </div>
+            <div className="text-xs mb-2" style={{ color: "#64748b" }}>
+              Query: {webSearch.query}
+            </div>
+            {webSearch.error && (
+              <div className="text-xs" style={{ color: "#f59e0b" }}>
+                {webSearch.error}
+              </div>
+            )}
+            <div className="space-y-2">
+              {(webSearch.results || []).map((r, i) => (
+                <div key={i} className="rounded-lg p-2" style={{ background: "#080b18" }}>
+                  <div className="text-xs font-medium" style={{ color: "#c7d2fe" }}>
+                    <a href={r.url} target="_blank" rel="noreferrer" style={{ color: "#4f7aff" }}>
+                      {r.title}
+                    </a>
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: "#475569" }}>
+                    {r.snippet}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

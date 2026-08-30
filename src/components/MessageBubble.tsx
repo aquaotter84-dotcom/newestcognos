@@ -1,27 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
 import type { Message } from "@/types/cognos";
 import CouncilTrace from "./CouncilTrace";
 import type { CouncilTrace as CouncilTraceType } from "@/types/cognos";
 
 type Props = {
   message: Message;
+  displayContent?: string;
 };
 
-function formatContent(content: string) {
-  // Basic markdown-ish formatting
-  return content
-    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.*?)\*/g, "<em>$1</em>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\n\n/g, "</p><p>")
-    .replace(/\n/g, "<br/>");
-}
-
-export default function MessageBubble({ message }: Props) {
+export default function MessageBubble({ message, displayContent }: Props) {
   const [showTrace, setShowTrace] = useState(false);
   const isUser = message.role === "user";
+  const content = displayContent ?? message.content;
   const hasTrace = message.councilTrace && Object.keys(message.councilTrace).length > 0;
 
   const timeStr = new Date(message.createdAt).toLocaleTimeString([], {
@@ -59,16 +52,15 @@ export default function MessageBubble({ message }: Props) {
         >
           {isUser ? (
             <p className="text-sm leading-relaxed" style={{ color: "#c7d2fe" }}>
-              {message.content}
+              {content}
             </p>
           ) : (
             <div
               className="text-sm leading-relaxed cognos-prose"
               style={{ color: "#e2e8f0" }}
-              dangerouslySetInnerHTML={{
-                __html: `<p>${formatContent(message.content)}</p>`,
-              }}
-            />
+            >
+              <ReactMarkdown>{content}</ReactMarkdown>
+            </div>
           )}
         </div>
 

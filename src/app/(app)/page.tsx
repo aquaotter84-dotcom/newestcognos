@@ -6,24 +6,60 @@ import MessageBubble from "@/components/MessageBubble";
 import ThinkingIndicator from "@/components/ThinkingIndicator";
 import ChatInput from "@/components/ChatInput";
 import { useCognos } from "@/lib/cognos-context";
-import type { Message } from "@/types/cognos";
+import { useSpeechSynthesis } from "@/hooks/use-voice";
+import type { Message, DocumentRecord } from "@/types/cognos";
 
 function ChatPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeSessionId = searchParams.get("c");
-  const { sessions, createSession, refreshSessions } = useCognos();
+  const { sessions, activeWorkspace, createSession, refreshSessions } = useCognos();
+  const { speak, cancel } = useSpeechSynthesis();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [thinking, setThinking] = useState(false);
   const [thinkingStage, setThinkingStage] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [style, setStyle] = useState<string>("balanced");
+  const [autoSpeak, setAutoSpeak] = useState(false);
+  const autoSpeakRef = useRef(false);
+  const [attachableDocs, setAttachableDocs] = useState<DocumentRecord[]>([]);
+
+  useEffect(() => {
+    autoSpeakRef.current = autoSpeak;
+  }, [autoSpeak]);
+
+  useEffect(() => () => cancel(), [cancel]);
+
+  useEffect(() => {
+    if (!activeWorkspace) return;
+    fetch(`/api/documents?workspaceId=${activeWorkspace.id}`)
+      .then((r) => r.json())
+      .then((d) => setAttachableDocs(Array.isArray(d) ? d.filter((x: DocumentRecord) => x.processingStatus === "complete") : []))
+      .catch(() => setAttachableDocs([]));
+  }, [activeWorkspace]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const thinkingInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const tempIdRef = useRef<string | null>(null);
+  const streamingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [streaming, setStreaming] = useState<{
+    id: string;
+    full: string;
+    revealed: string;
+  } | null>(null);
+
+  const stopStreaming = () => {
+    if (streamingRef.current) {
+      clearInterval(streamingRef.current);
+      streamingRef.current = null;
+    }
+    setStreaming(null);
+  };
 
   useEffect(() => {
+    stopStreaming();
     if (!activeSessionId) {
       setMessages([]);
       return;
@@ -54,7 +90,46 @@ function ChatPageInner() {
     }
   };
 
-  const handleSend = async (content: string, showTrace: boolean) => {
+  const startStreaming = (message: Message, onComplete?: () => void) => {
+    stopStreaming();
+    cancel();
+    const full = message.content;
+    if (!full) return;
+    let revealed = "";
+    const chunk = Math.max(3, Math.ceil(full.length / 80));
+    setStreaming({ id: message.id, full, revealed });
+
+    streamingRef.current = setInterval(() => {
+      revealed = full.slice(0, Math.min(full.length, revealed.length + chunk));
+      setStreaming({ id: message.id, full, revealed });
+      if (revealed.length >= full.length) {
+        stopStreaming();
+        onComplete?.();
+      }
+    }, 18);
+  };
+
+  const handleStop = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    stopStreaming();
+    if (tempIdRef.current) {
+      const id = tempIdRef.current;
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+      tempIdRef.current = null;
+    }
+    stopThinkingAnimation();
+    setThinking(false);
+    setThinkingStage(0);
+    setError(null);
+  };
+
+  const handleSend = async (
+    content: string,
+    showTrace: boolean,
+    webSearch = false,
+    attachments: string[] = []
+  ) => {
     let sessionId = activeSessionId;
     if (!sessionId) {
       const session = await createSession(content.slice(0, 50) || "New Session");
@@ -75,27 +150,43 @@ function ChatPageInner() {
       councilTrace: null,
       createdAt: new Date().toISOString(),
     };
+    tempIdRef.current = tempUserMsg.id;
     setMessages((prev) => [...prev, tempUserMsg]);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
       const res = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, content, showTrace, style }),
+        body: JSON.stringify({ sessionId, content, showTrace, style, webSearch, attachments }),
+        signal: controller.signal,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Request failed");
 
+      tempIdRef.current = null;
       setMessages((prev) => [
         ...prev.filter((m) => m.id !== tempUserMsg.id),
         data.userMessage,
         data.assistantMessage,
       ]);
+      startStreaming(data.assistantMessage as Message, () => {
+        const text = (data.assistantMessage as Message).content;
+        if (autoSpeakRef.current && text) speak(text);
+      });
       refreshSessions();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
-      setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
+      if (controller.signal.aborted) {
+        setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
+      } else {
+        setError(err instanceof Error ? err.message : "An error occurred");
+        setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
+      }
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+      tempIdRef.current = null;
       stopThinkingAnimation();
       setThinking(false);
       setThinkingStage(0);
@@ -135,6 +226,19 @@ function ChatPageInner() {
             />
             <span>{thinking ? "Processing" : "Ready"}</span>
           </div>
+
+          <button
+            onClick={() => setAutoSpeak((v) => !v)}
+            className="text-xs px-2 py-1 rounded-full transition-colors"
+            style={{
+              background: "#0c0f1e",
+              border: "1px solid #1a1f3a",
+              color: autoSpeak ? "#34d399" : "#475569",
+            }}
+            title="Read responses aloud"
+          >
+            {autoSpeak ? "◉ Voice on" : "○ Voice off"}
+          </button>
 
           <select
             value={style}
@@ -233,7 +337,7 @@ function ChatPageInner() {
               ].map((prompt) => (
                 <button
                   key={prompt}
-                  onClick={() => handleSend(prompt, false)}
+                  onClick={() => handleSend(prompt, false, false)}
                   disabled={thinking}
                   className="text-left text-xs px-3 py-2.5 rounded-xl transition-colors"
                   style={{
@@ -250,7 +354,13 @@ function ChatPageInner() {
         ) : (
           <>
             {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                displayContent={
+                  streaming?.id === msg.id ? streaming.revealed : undefined
+                }
+              />
             ))}
             {thinking && <ThinkingIndicator stage={thinkingStage} />}
           </>
@@ -279,6 +389,9 @@ function ChatPageInner() {
       <ChatInput
         onSend={handleSend}
         disabled={thinking || (!activeSessionId && sessions.length === 0)}
+        isProcessing={thinking}
+        onStop={handleStop}
+        availableDocuments={attachableDocs}
       />
     </div>
   );

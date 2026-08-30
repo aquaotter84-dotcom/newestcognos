@@ -8,7 +8,7 @@ import type { Session } from "@/types/cognos";
 
 export default function ThreadsPage() {
   const router = useRouter();
-  const { sessions, deleteSession } = useCognos();
+  const { sessions, deleteSession, refreshSessions } = useCognos();
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -41,6 +41,15 @@ export default function ThreadsPage() {
   const handleDelete = async (id: string) => {
     await deleteSession(id);
     setConfirmId(null);
+  };
+
+  const handleBranch = async (id: string) => {
+    const res = await fetch(`/api/sessions/${id}/branch`, { method: "POST" });
+    if (res.ok) {
+      const data = await res.json();
+      await refreshSessions();
+      router.push(`/?c=${data.id}`);
+    }
   };
 
   return (
@@ -122,6 +131,14 @@ export default function ThreadsPage() {
 
                 {confirmId !== s.id ? (
                   <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleBranch(s.id)}
+                      className="text-xs px-2 py-1 rounded-lg"
+                      style={{ color: "#64748b" }}
+                      title="Branch this thread"
+                    >
+                      ⑂
+                    </button>
                     <button
                       onClick={() => startEdit(s)}
                       className="text-xs px-2 py-1 rounded-lg"
