@@ -8,7 +8,7 @@ import {
   insights,
   auditEvents,
 } from "@/db/schema";
-import { desc, eq, or, isNull } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { runCouncil } from "@/lib/council";
 import { requireAuth } from "@/lib/auth";
 
@@ -166,7 +166,7 @@ export async function POST(request: Request) {
       targets = await db
         .select()
         .from(workspaces)
-        .where(or(eq(workspaces.ownerId, userId!), isNull(workspaces.ownerId)));
+        .where(eq(workspaces.ownerId, userId!));
     }
 
     const processed = [];

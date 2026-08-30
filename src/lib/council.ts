@@ -423,7 +423,20 @@ export async function runCouncil(
 
   const goveOutput = governor.output as Record<string, unknown>;
   const approved = goveOutput.approved !== false;
-  const releasedFinal = approved ? finalResponse : finalResponse;
+  let releasedFinal = finalResponse;
+  if (!approved) {
+    // The Governor is the sovereignty layer: when it withholds approval,
+    // its own directive is the only thing that goes out. Silence beats a
+    // draft it does not stand behind.
+    const directive =
+      typeof goveOutput.sovereigntyDirective === "string" &&
+      goveOutput.sovereigntyDirective.trim()
+        ? goveOutput.sovereigntyDirective.trim()
+        : "";
+    releasedFinal =
+      directive ||
+      "I've chosen not to answer this one. The council's draft didn't meet the bar I'd stand behind.";
+  }
 
   const taskTypeValue =
     (classification.task_type as string) || "conversation";

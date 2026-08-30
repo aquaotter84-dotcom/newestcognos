@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { workspaces } from "@/db/schema";
-import { and, asc, eq, or, isNull } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth";
 import { canAccessWorkspace } from "@/lib/workspace";
 
@@ -13,7 +13,7 @@ export async function GET() {
     const all = await db
       .select()
       .from(workspaces)
-      .where(or(eq(workspaces.ownerId, auth.user.id), isNull(workspaces.ownerId)))
+      .where(eq(workspaces.ownerId, auth.user.id))
       .orderBy(asc(workspaces.name));
     return NextResponse.json(all);
   } catch (err) {
@@ -108,7 +108,7 @@ export async function DELETE(request: Request) {
       .from(workspaces)
       .where(
         and(
-          or(eq(workspaces.ownerId, auth.user.id), isNull(workspaces.ownerId)),
+          eq(workspaces.ownerId, auth.user.id),
           eq(workspaces.id, id)
         )
       )
@@ -116,7 +116,7 @@ export async function DELETE(request: Request) {
     const remaining = await db
       .select()
       .from(workspaces)
-      .where(or(eq(workspaces.ownerId, auth.user.id), isNull(workspaces.ownerId)))
+      .where(eq(workspaces.ownerId, auth.user.id))
       .limit(2);
 
     if (accessible.length > 0 && remaining.length <= 1) {

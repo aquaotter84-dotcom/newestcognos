@@ -2,6 +2,12 @@ import { db } from "@/db";
 import { documents } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { chatCompletion } from "./council";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
+
+const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
+const FETCH_TIMEOUT_MS = 10_000;
+const MAX_REDIRECTS = 4;
 
 export type StoredDocument = {
   id: string;
@@ -72,26 +78,92 @@ export async function analyzeDocument(
   }
 }
 
+/**
+ * SSRF guard: only http(s) URLs, resolved to a public address before
+ * fetching. Blocks loopback, private, link-local, CGNAT, and benchmark
+ * ranges (IPv4 + IPv6). Redirects are re-checked hop by hop.
+ */
+async function assertSafeUrl(rawUrl: string): Promise<URL> {
+  const url = new URL(rawUrl);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Only http(s) URLs can be fetched");
+  }
+  const { address } = await lookup(url.hostname, { verbatim: true });
+  if (isBlockedAddress(address)) {
+    throw new Error("Refusing to fetch a private or local address");
+  }
+  return url;
+}
+
+function isBlockedAddress(ip: string): boolean {
+  if (isIP(ip) === 4) {
+    const [a, b] = ip.split(".").map(Number);
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true; // link-local
+    if (a === 172 && b >= 16 && b <= 31) return true; // private
+    if (a === 192 && b === 168) return true; // private
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    if (a === 198 && (b === 18 || b === 19)) return true; // benchmark
+    return false;
+  }
+  if (isIP(ip) === 6) {
+    const lower = ip.toLowerCase();
+    if (lower === "::1" || lower.startsWith("::ffff:127.")) return true;
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // ULA
+    if (/^fe[89ab]/.test(lower)) return true; // link-local
+    return false;
+  }
+  return true; // not a valid IP: don't fetch it
+}
+
 export async function fetchTextFromUrl(
   fileUrl: string,
   mimeType?: string | null
 ): Promise<{ text: string; detectedType: string }> {
-  const res = await fetch(fileUrl);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch ${fileUrl} (${res.status})`);
-  }
-  const blob = await res.blob();
-  const type = mimeType || blob.type || "";
-  const bytes = await blob.arrayBuffer();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    let current = await assertSafeUrl(fileUrl);
+    let res: Response | null = null;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      res = await fetch(current, { redirect: "manual", signal: controller.signal });
+      if (res.status >= 300 && res.status < 400) {
+        const loc = res.headers.get("location");
+        if (!loc) throw new Error(`Redirect from ${current} has no location`);
+        current = await assertSafeUrl(new URL(loc, current).toString());
+        continue;
+      }
+      break;
+    }
+    if (!res || !res.ok) {
+      throw new Error(`Failed to fetch ${fileUrl} (${res?.status ?? "no response"})`);
+    }
+    const declared = Number(res.headers.get("content-length") || 0);
+    if (declared > MAX_DOCUMENT_BYTES) {
+      throw new Error(
+        `Document too large (${declared} bytes; limit ${MAX_DOCUMENT_BYTES})`
+      );
+    }
+    const blob = await res.blob();
+    const bytes = await blob.arrayBuffer();
+    if (bytes.byteLength > MAX_DOCUMENT_BYTES) {
+      throw new Error(
+        `Document too large (${bytes.byteLength} bytes; limit ${MAX_DOCUMENT_BYTES})`
+      );
+    }
+    const type = mimeType || blob.type || "";
 
-  if (type.includes("pdf") || fileUrl.toLowerCase().endsWith(".pdf")) {
-    const pdfParse = (await import("pdf-parse")).default;
-    const parsed = await pdfParse(Buffer.from(bytes));
-    return { text: parsed.text || "", detectedType: "pdf" };
-  }
+    if (type.includes("pdf") || fileUrl.toLowerCase().endsWith(".pdf")) {
+      const pdfParse = (await import("pdf-parse")).default;
+      const parsed = await pdfParse(Buffer.from(bytes));
+      return { text: parsed.text || "", detectedType: "pdf" };
+    }
 
-  const text = new TextDecoder("utf-8").decode(bytes);
-  return { text, detectedType: type || "text" };
+    const text = new TextDecoder("utf-8").decode(bytes);
+    return { text, detectedType: type || "text" };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function classifyDocument(
