@@ -3,13 +3,20 @@ import { db } from "@/db";
 import { workspaces } from "@/db/schema";
 import { and, asc, eq, or, isNull } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth";
-import { canAccessWorkspace } from "@/lib/workspace";
+import {
+  canAccessWorkspace,
+  getOrCreateDefaultWorkspace,
+} from "@/lib/workspace";
 
 export async function GET() {
   const auth = await requireAuth();
   if (!auth.user) return auth.response!;
 
   try {
+    // A fresh account has no workspaces yet — make sure the default one
+    // exists so the sidebar and chat are usable on first load.
+    await getOrCreateDefaultWorkspace(auth.user.id);
+
     const all = await db
       .select()
       .from(workspaces)

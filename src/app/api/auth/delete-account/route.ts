@@ -13,6 +13,28 @@ export async function POST() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // The administrator account is owned by server configuration, not by a
+    // password. Never allow it to be deleted from the UI — and especially
+    // not through the stateless auto sign-in mode.
+    if (user.authMode === "admin-auto") {
+      return NextResponse.json(
+        {
+          error:
+            "Account deletion is disabled while administrator auto sign-in is active. Set ADMIN_AUTO_LOGIN=false and sign in normally first.",
+        },
+        { status: 403 }
+      );
+    }
+    if (user.role === "admin") {
+      return NextResponse.json(
+        {
+          error:
+            "The administrator account is managed by server configuration and cannot be deleted from here.",
+        },
+        { status: 403 }
+      );
+    }
+
     // The user's workspaces cascade to sessions, messages, memories,
     // documents, insights, and audit events through the schema foreign keys.
     // Auth sessions also cascade off the user row.

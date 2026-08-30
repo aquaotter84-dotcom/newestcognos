@@ -72,10 +72,46 @@ export async function analyzeDocument(
   }
 }
 
+/**
+ * Best-effort guard against server-side request forgery when ingesting
+ * user-supplied document URLs: refuse non-http(s) schemes and hosts that
+ * resolve to localhost, link-local, or private ranges.
+ */
+function isBlockedUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if (!["http:", "https:"].includes(url.protocol)) return true;
+    const host = url.hostname.toLowerCase();
+    if (
+      host === "localhost" ||
+      host === "0.0.0.0" ||
+      host === "::1" ||
+      host === "[::1]" ||
+      host.endsWith(".local") ||
+      host.endsWith(".internal")
+    ) {
+      return true;
+    }
+    if (/^127\./.test(host)) return true;
+    if (/^10\./.test(host)) return true;
+    if (/^192\.168\./.test(host)) return true;
+    if (/^169\.254\./.test(host)) return true;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 export async function fetchTextFromUrl(
   fileUrl: string,
   mimeType?: string | null
 ): Promise<{ text: string; detectedType: string }> {
+  if (isBlockedUrl(fileUrl)) {
+    throw new Error(
+      "Refusing to fetch this URL: only public http(s) addresses are allowed."
+    );
+  }
   const res = await fetch(fileUrl);
   if (!res.ok) {
     throw new Error(`Failed to fetch ${fileUrl} (${res.status})`);

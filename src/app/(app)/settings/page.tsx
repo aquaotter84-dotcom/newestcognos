@@ -8,7 +8,11 @@ import { useCognos } from "@/lib/cognos-context";
 export default function SettingsPage() {
   const router = useRouter();
   const { activeWorkspace, workspaces, sessions, currentUser, logout } = useCognos();
-  const [health, setHealth] = useState<{ ok: boolean } | null>(null);
+  const [health, setHealth] = useState<{
+    ok: boolean;
+    model?: string;
+    adminBypass?: { configured: boolean; autoLogin: boolean };
+  } | null>(null);
   const [memoryCount, setMemoryCount] = useState(0);
   const [insightCount, setInsightCount] = useState(0);
   const [activityCount, setActivityCount] = useState(0);
@@ -85,7 +89,7 @@ export default function SettingsPage() {
               </Row>
               <Row label="Model">
                 <span className="text-xs font-mono" style={{ color: "#64748b" }}>
-                  {process.env.NEXT_PUBLIC_MODEL || "gpt_5_4"}
+                  {health?.model || "gpt_5_4"}
                 </span>
               </Row>
               <Row label="Memory extraction">
@@ -93,6 +97,43 @@ export default function SettingsPage() {
                   enabled on chat turns
                 </span>
               </Row>
+            </div>
+          </section>
+
+          <section className="rounded-2xl p-6" style={{ background: "#0c0f1e", border: "1px solid #1a1f3a" }}>
+            <h2 className="text-sm font-semibold mb-4" style={{ color: "#c7d2fe" }}>Administrator access</h2>
+            <div className="space-y-2">
+              <Row label="Bypass key (ADMIN_BYPASS_KEY)">
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full"
+                  style={{
+                    background: health?.adminBypass?.configured ? "#34d39918" : "#1a1f3a",
+                    color: health?.adminBypass?.configured ? "#34d399" : "#64748b",
+                    border: `1px solid ${health?.adminBypass?.configured ? "#34d39933" : "#1a1f3a"}`,
+                  }}
+                >
+                  {health?.adminBypass?.configured ? "Configured" : "Not configured"}
+                </span>
+              </Row>
+              <Row label="Auto sign-in (ADMIN_AUTO_LOGIN)">
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full"
+                  style={{
+                    background: health?.adminBypass?.autoLogin ? "#f59e0b18" : "#1a1f3a",
+                    color: health?.adminBypass?.autoLogin ? "#f59e0b" : "#64748b",
+                    border: `1px solid ${health?.adminBypass?.autoLogin ? "#f59e0b33" : "#1a1f3a"}`,
+                  }}
+                >
+                  {health?.adminBypass?.autoLogin ? "Enabled" : "Disabled"}
+                </span>
+              </Row>
+              {health?.adminBypass?.autoLogin && (
+                <p className="text-xs leading-relaxed" style={{ color: "#f59e0b" }}>
+                  Auto sign-in is enabled: everyone reaching this instance is treated as
+                  the administrator and the Sign out button has no lasting effect. Keep
+                  this mode for private, single-user deployments only.
+                </p>
+              )}
             </div>
           </section>
 

@@ -388,7 +388,7 @@ function ChatPageInner() {
       {/* Input */}
       <ChatInput
         onSend={handleSend}
-        disabled={thinking || (!activeSessionId && sessions.length === 0)}
+        disabled={thinking}
         isProcessing={thinking}
         onStop={handleStop}
         availableDocuments={attachableDocs}
