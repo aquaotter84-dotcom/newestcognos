@@ -10,17 +10,21 @@
   },
   "dependencies": {
     "ai": "^7.0.78",
+    "bcryptjs": "^2.4.3",
     "dotenv": "17.3.1",
     "drizzle-orm": "^0.45.2",
     "next": "16.2.6",
     "openai": "^7.5.0",
+    "pdf-parse": "^1.1.4",
     "pg": "8.20.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
+    "react-markdown": "^10.1.0",
     "uuid": "^14.0.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.1.17",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "22.19.15",
     "@types/pg": "8.18.0",
     "@types/react": "19.2.14",

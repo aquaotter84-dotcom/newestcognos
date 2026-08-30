@@ -3,9 +3,10 @@
 const STAGES = [
   { key: "observer", label: "Observer", icon: "◎", color: "#38bdf8" },
   { key: "strategist", label: "Strategist", icon: "◈", color: "#a78bfa" },
+  { key: "specialist", label: "Specialist", icon: "✳", color: "#f472b6" },
+  { key: "synthesizer", label: "Synthesizer", icon: "⬡", color: "#4f7aff" },
   { key: "critic", label: "Critic", icon: "◉", color: "#f59e0b" },
   { key: "governor", label: "Governor", icon: "◆", color: "#34d399" },
-  { key: "orchestrator", label: "Synthesizing", icon: "⬡", color: "#4f7aff" },
 ];
 
 type Props = {

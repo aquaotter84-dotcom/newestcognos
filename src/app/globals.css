@@ -22,7 +22,7 @@ html,
 body {
   background: var(--cognos-bg);
   color: var(--cognos-text);
-  font-family: "Inter", system-ui, sans-serif;
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   height: 100%;
   overflow: hidden;
 }
