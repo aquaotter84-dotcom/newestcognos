@@ -4,22 +4,39 @@ Cognitive Operators for Guidance, Navigation, Oversight, and Sovereignty.
 
 One Voice Outward. Many Minds Underneath.
 
-A Next.js app (App Router, TypeScript, Tailwind 4, Drizzle ORM + PostgreSQL) that runs every message through a council of four operators — Observer, Strategist, Critic, Governor — plus an Orchestrator synthesis. The Governor recommends memories that are persisted in four tiers (short / medium / long / mythic). Council trace is available per message.
+A self-hostable Next.js app (App Router, TypeScript, Tailwind 4, Drizzle ORM + PostgreSQL) that runs chat, memory, autonomous deliberations, and an architecture monitor through a council of cognitive operators: Observer, Strategist, Specialist, Synthesizer, Critic, and Governor.
+
+This is the open-source rewrite of the Base44 “COGNOS / Cognitive-Acuity” app. It uses no Base44 SDK, credits, or meters.
+
+## What it does
+
+- **Chat** — every message runs through the six-operator council and returns one unified response. Council traces are visible per message.
+- **Memory** — the council recommends durable memories (short / medium / long / mythic), with an enriched data model (`memory_type`, `importance`, `evidence_level`, `volatility`, `is_enabled`).
+- **Threads** — search, rename, open, and delete conversations per workspace.
+- **Workspaces** — create, edit, switch, and delete separate cognitive contexts.
+- **Insights** — autonomous one-off deliberations stored as insights.
+- **Activity** — audit trail of council invocations, model calls, and memory operations.
+- **System** — visual architecture map of the pipeline.
+- **Beliefs / Dynamics** — derived view of enabled memory and a timeline of changes.
+- **Documents** — placeholder module for the next phase (upload, text extraction, and document context). The rest of the data model is ready for it.
 
 ## Stack
 
 - Next.js 16 (App Router) + React 19
 - Drizzle ORM + node-postgres (PostgreSQL: Neon, Supabase, or any Postgres)
-- BluesMinds API (OpenAI-compatible) for the council LLM calls
+- BluesMinds API (OpenAI-compatible) or any OpenAI-compatible chat endpoint for the council LLM calls
 
 ## Local development
 
-1. Create a PostgreSQL database (e.g. free Neon or Supabase instance).
-2. Run `src/db/schema.sql` in it once.
+1. Create a PostgreSQL database (free Neon or Supabase instance).
+2. For a **fresh** database, run `src/db/schema.sql` in it once.
+   For an **existing** COGNOS database, run `src/db/migrate.sql` to upgrade to the workspace-aware schema.
 3. Copy `.env.example` to `.env` and fill in:
    - `DATABASE_URL` — your Postgres connection string
    - `BLUESMINDS_API_KEY` — your BluesMinds key
    - optional: `BLUESMINDS_MODEL` (default `gpt_5_4`), `BLUESMINDS_API_URL` (default `https://api.bluesminds.com/v1/chat/completions`)
+   - optional: `MEMORY_EXTRACTION=true|false` (memory extraction is on by default)
+   - optional: `COUNCIL_MAX_REVISIONS` (default `1`), `COUNCIL_REVISION_THRESHOLD` (default `70`)
 4. `npm install`
 5. `npm run dev` — open http://localhost:3000
 
@@ -36,13 +53,18 @@ A Next.js app (App Router, TypeScript, Tailwind 4, Drizzle ORM + PostgreSQL) tha
 ## API
 
 - `GET /api/health` — DB connectivity check
-- `GET/POST/DELETE /api/memories` — memory panel CRUD
+- `GET/POST/PATCH /api/workspaces` — workspace list / create / update (DELETE via `?id=`)
+- `GET/POST/PATCH /api/sessions?workspaceId=...` — session list / create / update
+- `PATCH/DELETE /api/sessions/[id]` — rename / update / delete session
 - `GET/POST /api/messages?sessionId=...` — session messages + council chat
-- `GET/POST /api/sessions` — session list / create
-- `PATCH/DELETE /api/sessions/[id]` — rename / delete session
+- `GET/POST/PATCH/DELETE /api/memories` — enriched memory CRUD (DELETE via `?id=`)
+- `GET/POST/PATCH/DELETE /api/insights` — insights list / create / update (DELETE via `?id=`)
+- `POST /api/insights/run` — run an autonomous deliberation and store it as an insight
+- `GET /api/activity` — activity / audit trail
 
 ## Notes
 
-- Five LLM calls per message: Observer → Strategist → Critic → Governor → Orchestrator.
-- The Governor's `memoryRecommendation` array is written to the `memories` table (max 3 per turn).
+- The council performs these stages per turn: Observer → Strategist → Specialist → Synthesizer → Critic (with best-effort revision loop) → Governor → Orchestrator response.
+- The Governor's `memoryRecommendation` array and a separate memory-extraction pass are written to the `memories` table.
+- Conversation summaries are written back to the session so threads retain continuity.
 - This build does not use Base44 — no platform credits or meters involved.

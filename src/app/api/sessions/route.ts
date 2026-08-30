@@ -1,15 +1,22 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { sessions } from "@/db/schema";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
+import { resolveWorkspaceId } from "@/lib/workspace";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const requestedWorkspace = searchParams.get("workspaceId");
+    const workspace = await resolveWorkspaceId(requestedWorkspace);
+
     const allSessions = await db
       .select()
       .from(sessions)
+      .where(eq(sessions.workspaceId, workspace.id))
       .orderBy(desc(sessions.updatedAt))
-      .limit(50);
+      .limit(100);
+
     return NextResponse.json(allSessions);
   } catch (err) {
     console.error(err);
@@ -20,16 +27,49 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
+    const workspace = await resolveWorkspaceId(body.workspaceId);
     const title = body.title ?? "New Session";
 
     const [session] = await db
       .insert(sessions)
-      .values({ title })
+      .values({
+        title,
+        workspaceId: workspace.id,
+        lastMessagePreview: body.lastMessagePreview ?? "",
+      })
       .returning();
 
     return NextResponse.json(session, { status: 201 });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Failed to create session" }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const id = body.id;
+    if (!id) {
+      return NextResponse.json({ error: "id required" }, { status: 400 });
+    }
+    const [updated] = await db
+      .update(sessions)
+      .set({
+        title: body.title ?? undefined,
+        summary: body.summary ?? undefined,
+        lastMessagePreview: body.lastMessagePreview ?? undefined,
+        archived: body.archived ?? undefined,
+        updatedAt: new Date(),
+      })
+      .where(eq(sessions.id, id))
+      .returning();
+    if (!updated) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+    return NextResponse.json(updated);
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: "Failed to update session" }, { status: 500 });
   }
 }

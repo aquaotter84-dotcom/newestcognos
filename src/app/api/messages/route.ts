@@ -1,8 +1,58 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { messages, sessions, memories } from "@/db/schema";
+import { messages, sessions, memories, auditEvents, workspaces } from "@/db/schema";
 import { eq, desc, asc } from "drizzle-orm";
-import { runCouncil } from "@/lib/council";
+import {
+  runCouncil,
+  extractMemories,
+  summarizeConversation,
+} from "@/lib/council";
+import type { MemoryExtraction } from "@/lib/council";
+
+const VALID_TIERS = ["short", "medium", "long", "mythic"] as const;
+type Tier = (typeof VALID_TIERS)[number];
+
+const VALID_TASK_TYPES = [
+  "conversation",
+  "question_answering",
+  "research",
+  "planning",
+  "coding",
+  "analysis",
+  "creative",
+  "decision_support",
+  "action_execution",
+] as const;
+type TaskType = (typeof VALID_TASK_TYPES)[number];
+
+function taskTypeFromValue(value: unknown): TaskType {
+  const v = String(value || "conversation");
+  return (VALID_TASK_TYPES as readonly string[]).includes(v)
+    ? (v as TaskType)
+    : "conversation";
+}
+
+function tierFromValue(value: unknown): Tier {
+  const v = String(value || "medium");
+  return (VALID_TIERS as readonly string[]).includes(v)
+    ? (v as Tier)
+    : "medium";
+}
+
+function slugifyKey(value: string) {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 60);
+  return slug || "memory";
+}
+
+function tierFromMemoryType(memoryType: string): Tier {
+  if (memoryType === "working") return "short";
+  if (memoryType === "episodic") return "medium";
+  return "long";
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -25,9 +75,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  let start = Date.now();
   try {
     const body = await request.json();
-    const { sessionId, content, showTrace } = body;
+    const { sessionId, content, showTrace, style } = body;
 
     if (!sessionId || !content) {
       return NextResponse.json(
@@ -36,10 +87,34 @@ export async function POST(request: Request) {
       );
     }
 
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId))
+      .limit(1);
+    if (!session) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    const [workspace] = await db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, session.workspaceId))
+      .limit(1);
+    if (!workspace) {
+      return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+    }
+
     // Save user message
     const [userMsg] = await db
       .insert(messages)
-      .values({ sessionId, role: "user", content })
+      .values({
+        sessionId,
+        workspaceId: workspace.id,
+        role: "user",
+        content,
+        processingStatus: "complete",
+      })
       .returning();
 
     // Fetch conversation history
@@ -48,61 +123,90 @@ export async function POST(request: Request) {
       .from(messages)
       .where(eq(messages.sessionId, sessionId))
       .orderBy(asc(messages.createdAt))
-      .limit(20);
+      .limit(30);
 
     const conversationHistory = history
-      .filter((m) => m.id !== userMsg.id)
+      .filter((m) => m.id !== userMsg.id && m.role !== "system")
       .map((m) => ({ role: m.role, content: m.content }));
 
-    // Fetch relevant memories
+    // Fetch relevant memories for this workspace
     const activeMemories = await db
       .select()
       .from(memories)
-      .orderBy(desc(memories.relevanceScore), desc(memories.updatedAt))
-      .limit(10);
+      .where(eq(memories.workspaceId, workspace.id))
+      .orderBy(desc(memories.importance), desc(memories.updatedAt))
+      .limit(20);
 
+    const enabledMemories = activeMemories.filter((m) => m.isEnabled !== false);
     const memoryContext =
-      activeMemories.length > 0
-        ? activeMemories
+      enabledMemories.length > 0
+        ? enabledMemories
+            .slice(0, 12)
             .map((m) => `[${m.tier}/${m.key}]: ${m.value}`)
             .join("\n")
         : "";
 
     // Run the council
-    const trace = await runCouncil(
-      content,
-      memoryContext,
-      conversationHistory
-    );
+    const trace = await runCouncil(content, memoryContext, conversationHistory, {
+      style,
+    });
+    const latencyMs = Date.now() - start;
 
-    // Save governor's memory recommendations
+    // Save governor memory recommendations
     const govOutput = trace.governor as Record<string, unknown>;
-    const memRecs = govOutput?.memoryRecommendation as Array<{
-      tier: string;
-      key: string;
-      value: string;
-    }> | undefined;
+    const memRecs = Array.isArray(govOutput?.memoryRecommendation)
+      ? (govOutput.memoryRecommendation as Array<Record<string, unknown>>)
+      : [];
 
-    if (Array.isArray(memRecs) && memRecs.length > 0) {
-      for (const rec of memRecs.slice(0, 3)) {
-        if (rec.key && rec.value) {
-          const tier = (["short", "medium", "long", "mythic"].includes(rec.tier)
-            ? rec.tier
-            : "medium") as "short" | "medium" | "long" | "mythic";
+    const extracted: MemoryExtraction[] = process.env.MEMORY_EXTRACTION !== "false"
+      ? await extractMemories(content, trace.finalResponse)
+      : [];
 
-          await db
-            .insert(memories)
-            .values({
-              sessionId,
-              tier,
-              operator: "governor",
-              key: rec.key,
-              value: rec.value,
-              relevanceScore: tier === "mythic" ? 90 : tier === "long" ? 70 : 50,
-            })
-            .onConflictDoNothing();
-        }
-      }
+    const allMemories = [
+      ...memRecs
+        .filter((rec) => rec?.key && rec?.value)
+        .slice(0, 3)
+        .map((rec) => ({
+          content: String(rec.value),
+          memory_type: "semantic" as const,
+          importance: 6,
+          evidence_level: "inferred" as const,
+          volatility: "medium" as const,
+          tier: tierFromValue(rec.tier),
+          key: slugifyKey(String(rec.key)),
+        })),
+      ...extracted.slice(0, 5).map((m) => ({
+        content: m.content,
+        memory_type: m.memory_type,
+        importance: m.importance,
+        evidence_level: m.evidence_level,
+        volatility: m.volatility,
+        tier: m.tier,
+        key: slugifyKey(m.content.slice(0, 60)),
+      })),
+    ];
+
+    for (const rec of allMemories) {
+      const tier = tierFromValue(rec.tier);
+      await db
+        .insert(memories)
+        .values({
+          sessionId,
+          workspaceId: workspace.id,
+          tier,
+          memoryType: rec.memory_type,
+          operator: "governor",
+          key: rec.key,
+          value: rec.content,
+          importance: rec.importance,
+          evidenceLevel: rec.evidence_level,
+          volatility: rec.volatility,
+          relevanceScore: tier === "mythic" ? 90 : tier === "long" ? 75 : 60,
+          isEnabled: true,
+          source: sessionId,
+          lastConfirmed: new Date(),
+        })
+        .onConflictDoNothing();
     }
 
     // Save assistant message
@@ -110,42 +214,68 @@ export async function POST(request: Request) {
       .insert(messages)
       .values({
         sessionId,
+        workspaceId: workspace.id,
         role: "assistant",
         content: trace.finalResponse,
-        councilTrace: showTrace ? (trace as unknown as Record<string, unknown>) : null,
+        modelUsed: trace.latent.modelUsed,
+        taskType: taskTypeFromValue(trace.latent.taskType),
+        processingStatus: "complete",
+        councilTrace: showTrace ? trace : null,
       })
       .returning();
 
-    // Update session timestamp and potentially title
+    // Best-effort summary
+    const summary = await summarizeConversation(
+      conversationHistory.slice(-6),
+      content,
+      trace.finalResponse
+    );
+
+    // Update session title/preview/timestamp
     const sessionMsgs = await db
       .select()
       .from(messages)
       .where(eq(messages.sessionId, sessionId))
       .orderBy(asc(messages.createdAt))
-      .limit(2);
+      .limit(4);
 
-    if (sessionMsgs.length === 2) {
-      // Auto-title from first user message
-      const firstUserMsg = sessionMsgs.find((m) => m.role === "user");
-      if (firstUserMsg) {
-        const title =
-          firstUserMsg.content.slice(0, 60) +
-          (firstUserMsg.content.length > 60 ? "…" : "");
-        await db
-          .update(sessions)
-          .set({ title, updatedAt: new Date() })
-          .where(eq(sessions.id, sessionId));
-      }
-    } else {
-      await db
-        .update(sessions)
-        .set({ updatedAt: new Date() })
-        .where(eq(sessions.id, sessionId));
-    }
+    const firstUserMsg = sessionMsgs.find((m) => m.role === "user");
+    const title =
+      firstUserMsg && sessionMsgs.length <= 3
+        ? firstUserMsg.content.slice(0, 60) +
+          (firstUserMsg.content.length > 60 ? "…" : "")
+        : undefined;
+
+    await db
+      .update(sessions)
+      .set({
+        title: title ?? undefined,
+        summary: summary ?? undefined,
+        lastMessagePreview: trace.finalResponse.slice(0, 120),
+        updatedAt: new Date(),
+      })
+      .where(eq(sessions.id, sessionId));
+
+    // Log activity
+    await db
+      .insert(auditEvents)
+      .values({
+        workspaceId: workspace.id,
+        sessionId,
+        description: `Council chat turn — ${trace.latent.taskType}`,
+        eventType: "agent_invocation",
+        agentType: "orchestrator",
+        modelUsed: trace.latent.modelUsed,
+        taskType: taskTypeFromValue(trace.latent.taskType),
+        latencyMs,
+        status: "success",
+      })
+      .onConflictDoNothing();
 
     return NextResponse.json({
       userMessage: userMsg,
       assistantMessage: assistantMsg,
+      summary,
       trace: showTrace ? trace : null,
     });
   } catch (err) {

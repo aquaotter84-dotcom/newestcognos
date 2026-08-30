@@ -9,12 +9,23 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
+
     const [updated] = await db
       .update(sessions)
-      .set({ title: body.title, updatedAt: new Date() })
+      .set({
+        title: body.title ?? undefined,
+        summary: body.summary ?? undefined,
+        lastMessagePreview: body.lastMessagePreview ?? undefined,
+        archived: body.archived ?? undefined,
+        updatedAt: new Date(),
+      })
       .where(eq(sessions.id, id))
       .returning();
+
+    if (!updated) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
     return NextResponse.json(updated);
   } catch (err) {
     console.error(err);
