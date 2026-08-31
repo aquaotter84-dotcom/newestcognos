@@ -7,7 +7,7 @@ import { useCognos } from "@/lib/cognos-context";
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { activeWorkspace, workspaces, sessions, currentUser, logout } = useCognos();
+  const { activeWorkspace, workspaces, sessions, currentUser, autoSignin, logout } = useCognos();
   const [health, setHealth] = useState<{ ok: boolean } | null>(null);
   const [memoryCount, setMemoryCount] = useState(0);
   const [insightCount, setInsightCount] = useState(0);
@@ -105,8 +105,26 @@ export default function SettingsPage() {
               <span className="text-sm" style={{ color: "#94a3b8" }}>{currentUser?.name || "—"}</span>
             </Row>
             <Row label="Role">
-              <span className="text-sm" style={{ color: "#94a3b8" }}>{currentUser?.role || "user"}</span>
+              <span
+                className="text-xs px-2 py-0.5 rounded-full font-medium"
+                style={
+                  currentUser?.role === "admin"
+                    ? { background: "#34d39918", color: "#34d399", border: "1px solid #34d39933" }
+                    : { background: "#1a1f3a", color: "#94a3b8", border: "1px solid #1a1f3a" }
+                }
+              >
+                {currentUser?.role === "admin" ? "◆ Administrator" : (currentUser?.role || "user")}
+              </span>
             </Row>
+            {autoSignin ? (
+              <p className="mt-4 text-xs leading-relaxed" style={{ color: "#475569" }}>
+                Admin auto sign-in is enabled on this deployment
+                (<code style={{ color: "#64748b" }}>COGNOS_AUTO_SIGNIN</code>). You are signed in
+                automatically as <span style={{ color: "#94a3b8" }}>{currentUser?.email}</span>;
+                signing out is disabled because the next visit would sign you straight back in.
+              </p>
+            ) : (
+            <>
             <div className="mt-4 flex gap-2">
               <button
                 onClick={() => logout().then(() => router.push("/login"))}
@@ -146,6 +164,8 @@ export default function SettingsPage() {
             <p className="text-xs mt-3" style={{ color: "#334155" }}>
               Deleting your account removes your workspaces, threads, messages, memories, documents, and insights.
             </p>
+            </>
+            )}
           </section>
 
           <section className="rounded-2xl p-6" style={{ background: "#0c0f1e", border: "1px solid #1a1f3a" }}>

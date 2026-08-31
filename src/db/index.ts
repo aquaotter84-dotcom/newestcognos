@@ -26,7 +26,7 @@ function getDb(): ReturnType<typeof drizzle> {
       process.env.DATABASE_POOL_IDLE_MS || 30000
     );
 
-    globalForDb.__cognosPool = new Pool({
+    const pool = new Pool({
       connectionString: databaseUrl,
       max,
       idleTimeoutMillis,
@@ -34,7 +34,14 @@ function getDb(): ReturnType<typeof drizzle> {
         process.env.DATABASE_CONNECTION_TIMEOUT_MS || 10000
       ),
     });
-    globalForDb.__cognosDb = drizzle(globalForDb.__cognosPool);
+    // Idle clients can die (Neon pauses its serverless DB, cold starts,
+    // network blips). Without this listener the "error" event is unhandled
+    // and crashes the serverless function on Vercel.
+    pool.on("error", (err) => {
+      console.error("pg pool idle client error:", err.message);
+    });
+    globalForDb.__cognosPool = pool;
+    globalForDb.__cognosDb = drizzle(pool);
   }
   return globalForDb.__cognosDb;
 }

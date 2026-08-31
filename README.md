@@ -14,7 +14,7 @@ This is the open-source rewrite of the Base44 “COGNOS / Cognitive-Acuity” ap
 - **Memory** — the council recommends durable memories (short / medium / long / mythic), with an enriched data model (`memory_type`, `importance`, `evidence_level`, `volatility`, `is_enabled`).
 - **Threads** — search, rename, open, and delete conversations per workspace.
 - **Workspaces** — create, edit, switch, and delete separate cognitive contexts.
-- **Accounts** — email/password registration, login, logout, hard delete. Data is scoped to the signed-in user and their workspaces.
+- **Accounts** — email/password registration, login, logout, hard delete. Data is scoped to the signed-in user and their workspaces. Administrator mode (env-configured admin + optional auto sign-in that bypasses the login screen) for self-hosted single-operator deployments.
 - **Insights** — autonomous one-off deliberations stored as insights, plus scheduled daily briefings for cron.
 - **Activity** — audit trail of council invocations, model calls, and memory operations.
 - **System** — visual architecture map of the pipeline.
@@ -57,8 +57,44 @@ This is the open-source rewrite of the Base44 “COGNOS / Cognitive-Acuity” ap
    - `CRON_SECRET` — a strong random string (e.g. `openssl rand -hex 32`)
    - optional `BLUESMINDS_MODEL`, `MEMORY_EXTRACTION`, `COUNCIL_MAX_REVISIONS`
    - optional `WEB_SEARCH_PROVIDER` + provider key for Tavily/Exa
+   - optional administrator mode: `COGNOS_ADMIN_EMAIL`, `COGNOS_ADMIN_PASSWORD`, and `COGNOS_AUTO_SIGNIN=true` to bypass the login screen (see below)
 5. In Vercel project Settings → Cron Jobs, enable the built-in cron (the repo already includes `vercel.json` with a daily briefing at 08:00 UTC) and set the secret to the same `CRON_SECRET`.
-6. Deploy. Register an account from `/register`, then use the app.
+6. Deploy. Sign in (or use administrator mode below), then use the app.
+
+### Administrator mode (skip the login screen)
+
+COGNOS is built for self-hosted single-operator use, so you can become the
+administrator from environment variables alone — no manual SQL:
+
+- `COGNOS_ADMIN_EMAIL` + `COGNOS_ADMIN_PASSWORD`
+  - **Login with these credentials always works**, even on a completely fresh
+    database: the account is created on first use with role `admin`. The
+    configured password doubles as a recovery credential for that account.
+  - Registering with `COGNOS_ADMIN_EMAIL` also yields role `admin`.
+- `COGNOS_AUTO_SIGNIN=true` (requires both variables above)
+  - **The login screen is bypassed entirely.** On every page load the app
+    asks `/api/auth/bootstrap` to mint a session for the admin user, so you
+    open the app and you're in, as `◆ Administrator` (see Settings).
+  - Add the same variable in Vercel Environment Variables for production.
+
+If you don't set these, the app behaves normally: register at `/register`,
+sign in at `/login`, role `user`.
+
+### Troubleshooting (Vercel + Neon)
+
+- `/api/health` returns `{"ok":false}` → check `DATABASE_URL` exists in the
+  Vercel environment (use the **pooled** string) and that `src/db/schema.sql`
+  was actually run in the Neon SQL editor. A 500 that says
+  `relation "users" does not exist` means the schema was never applied.
+- Login says **"Invalid email or password"** → there is simply no account
+  with that email yet. Register one, or use administrator mode above (the
+  admin login works even on an empty database).
+- First request after the free Neon instance has been paused for a while can
+  be slow or fail once — the DB is waking up. Retry; the connection pool
+  recovers automatically.
+- The daily cron briefing runs the full council per workspace and can exceed
+  the function time limit on small Vercel plans. If briefings error, raise
+  the plan's function duration or keep the number of workspaces small.
 
 ### Neon notes
 - Use the **pooled** connection string in Vercel; the direct (non-pooler) string is best for local `psql`/migrations.
@@ -68,6 +104,7 @@ This is the open-source rewrite of the Base44 “COGNOS / Cognitive-Acuity” ap
 
 - `GET /api/health` — DB connectivity check
 - `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/delete-account` — account management
+- `GET /api/auth/bootstrap` — admin auto sign-in (only active with `COGNOS_AUTO_SIGNIN=true`)
 - `GET/POST/PATCH/DELETE /api/workspaces` — workspace CRUD
 - `GET/POST/PATCH /api/sessions?workspaceId=...` — session list / create / update
 - `PATCH/DELETE /api/sessions/[id]` — session update / delete

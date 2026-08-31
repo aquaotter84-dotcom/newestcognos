@@ -14,6 +14,8 @@ Target repo: `aquaotter84-dotcom/newestcognos` (open-source Next.js rewrite)
 The open-source app now covers most of the Base44 product surface without the Base44 SDK:
 
 - **Accounts** — email/password register, login, logout, hard delete; per-user data isolation.
+- **Administrator mode** — `COGNOS_ADMIN_EMAIL`/`COGNOS_ADMIN_PASSWORD` provision an admin account from the environment (login works even on a fresh database; the env password doubles as a recovery credential). `COGNOS_AUTO_SIGNIN=true` bypasses the login screen entirely via `GET /api/auth/bootstrap`. Settings shows an admin badge and explains the mode.
+- **First-run readiness** — the default workspace is created at register/login (and as a `GET /api/workspaces` fallback), and the chat input is enabled from the very first message (session is created lazily on send).
 - **Workspaces** — CRUD, switching, per-workspace instructions, and per-user default creation.
 - **Council chat** — Observer → Strategist → Specialist → Synthesizer → Critic (best-effort revision) → Governor → unified response.
 - **Web search** — DuckDuckGo fallback plus Tavily/Exa provider support, with a chat toggle and trace display.

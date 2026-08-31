@@ -15,6 +15,8 @@ type CognosContextValue = {
   currentUser: User | null;
   isAuthenticated: boolean;
   isLoadingAuth: boolean;
+  /** True when the deployment signs the admin in automatically. */
+  autoSignin: boolean;
   workspaces: Workspace[];
   activeWorkspace: Workspace | null;
   activeWorkspaceId: string | null;
@@ -36,6 +38,7 @@ export function CognosProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const [autoSignin, setAutoSignin] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -45,14 +48,28 @@ export function CognosProvider({ children }: { children: ReactNode }) {
     setIsLoadingAuth(true);
     try {
       const res = await fetch("/api/auth/me");
-      if (!res.ok) {
-        setCurrentUser(null);
-        setIsAuthenticated(false);
+      if (res.ok) {
+        const data = (await res.json()) as User;
+        setCurrentUser(data);
+        setIsAuthenticated(true);
+        setAutoSignin(false);
         return;
       }
-      const data = (await res.json()) as User;
-      setCurrentUser(data);
-      setIsAuthenticated(true);
+      if (res.status === 401) {
+        // Admin auto sign-in (login-screen bypass): deployments with
+        // COGNOS_AUTO_SIGNIN=true mint a session here, so the login page
+        // is never shown. Returns 404 when the feature is off.
+        const boot = await fetch("/api/auth/bootstrap");
+        if (boot.ok) {
+          const data = (await boot.json()) as User & { autoSignin?: boolean };
+          setCurrentUser(data);
+          setIsAuthenticated(true);
+          setAutoSignin(!!data.autoSignin);
+          return;
+        }
+      }
+      setCurrentUser(null);
+      setIsAuthenticated(false);
     } catch {
       setCurrentUser(null);
       setIsAuthenticated(false);
@@ -164,6 +181,7 @@ export function CognosProvider({ children }: { children: ReactNode }) {
         currentUser,
         isAuthenticated,
         isLoadingAuth,
+        autoSignin,
         workspaces,
         activeWorkspace,
         activeWorkspaceId,

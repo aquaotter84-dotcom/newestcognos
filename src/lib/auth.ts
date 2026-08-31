@@ -16,6 +16,30 @@ export type AuthUser = {
   role: string;
 };
 
+// ─── Administrator bootstrap (self-hosted single-operator mode) ────────────
+//
+// COGNOS is meant to run as a personal tool, so the deployer gets a
+// deterministic way to be the administrator without manual SQL:
+//
+//   COGNOS_ADMIN_EMAIL / COGNOS_ADMIN_PASSWORD
+//     - Logging in with these credentials always works, even on a fresh
+//       database — the account is created on first use with role "admin".
+//     - Registering with the same email also yields role "admin".
+//
+//   COGNOS_AUTO_SIGNIN=true (requires both vars above)
+//     - The app signs the admin user in automatically on page load.
+//       The login screen is never shown. See /api/auth/bootstrap.
+export function getAdminConfig() {
+  const email = (process.env.COGNOS_ADMIN_EMAIL || "").trim().toLowerCase();
+  const password = process.env.COGNOS_ADMIN_PASSWORD || "";
+  return {
+    email: email || null,
+    password: password || null,
+    name: (process.env.COGNOS_ADMIN_NAME || "Administrator").trim() || "Administrator",
+    autoSignin: process.env.COGNOS_AUTO_SIGNIN === "true",
+  };
+}
+
 export function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
