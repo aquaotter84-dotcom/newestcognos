@@ -1,4 +1,5 @@
 import {
+  COGNOS_IDENTITY,
   OPERATOR_PROMPTS,
   STYLE_INSTRUCTIONS,
   type Style,
@@ -302,6 +303,7 @@ export async function runCouncil(
       : "";
 
   const baseContext = [
+    COGNOS_IDENTITY,
     `Communication style: ${style}. ${STYLE_INSTRUCTIONS[style]}`,
     memoryContext ? `Active memory context:\n${memoryContext}` : "",
     historyText,
