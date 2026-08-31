@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { sessions } from "@/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { sessions, workspaces } from "@/db/schema";
+import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { requireAuth } from "@/lib/auth";
 import { canAccessWorkspace, resolveWorkspaceId } from "@/lib/workspace";
 
@@ -11,10 +11,30 @@ export async function GET(request: Request) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const workspace = await resolveWorkspaceId(
-      searchParams.get("workspaceId"),
-      auth.user.id
-    );
+    const requested = searchParams.get("workspaceId");
+
+    // A requested workspace that the caller cannot access must 404, not
+    // silently fall back to the caller's own default workspace.
+    if (requested) {
+      const [ws] = await db
+        .select()
+        .from(workspaces)
+        .where(
+          and(
+            eq(workspaces.id, requested),
+            or(eq(workspaces.ownerId, auth.user.id), isNull(workspaces.ownerId))
+          )
+        )
+        .limit(1);
+      if (!ws) {
+        return NextResponse.json(
+          { error: "Workspace not found" },
+          { status: 404 }
+        );
+      }
+    }
+
+    const workspace = await resolveWorkspaceId(requested, auth.user.id);
 
     const allSessions = await db
       .select()

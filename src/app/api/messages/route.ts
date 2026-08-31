@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { messages, sessions, memories, auditEvents, workspaces, documents } from "@/db/schema";
-import { eq, desc, asc, inArray } from "drizzle-orm";
+import { eq, desc, asc, inArray, and } from "drizzle-orm";
 import {
   runCouncil,
   extractMemories,
@@ -168,11 +168,18 @@ export async function POST(request: Request) {
     const attachmentIds = Array.isArray(attachments)
       ? attachments.filter(Boolean).slice(0, 6)
       : [];
+    // Attachments must belong to this session's workspace — never trust a
+    // raw document id from the client.
     const attachmentDocs = attachmentIds.length
       ? await db
           .select()
           .from(documents)
-          .where(inArray(documents.id, attachmentIds))
+          .where(
+            and(
+              inArray(documents.id, attachmentIds),
+              eq(documents.workspaceId, workspace.id)
+            )
+          )
           .limit(6)
       : [];
     const attachmentContext = attachmentDocs
@@ -225,7 +232,22 @@ export async function POST(request: Request) {
       })),
     ];
 
+    // The memories table has no unique constraint on (workspace, key), so
+    // an unconditional insert would duplicate the same memory every turn.
+    // Dedupe against what this workspace already holds.
+    const existingKeys = new Set(
+      (
+        await db
+          .select({ key: memories.key })
+          .from(memories)
+          .where(eq(memories.workspaceId, workspace.id))
+      ).map((m) => m.key)
+    );
+    const seenKeys = new Set<string>();
     for (const rec of allMemories) {
+      const key = slugifyKey(rec.key);
+      if (seenKeys.has(key) || existingKeys.has(key)) continue;
+      seenKeys.add(key);
       const tier = tierFromValue(rec.tier);
       await db
         .insert(memories)
@@ -235,7 +257,7 @@ export async function POST(request: Request) {
           tier,
           memoryType: rec.memory_type,
           operator: "governor",
-          key: rec.key,
+          key,
           value: rec.content,
           importance: rec.importance,
           evidenceLevel: rec.evidence_level,

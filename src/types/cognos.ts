@@ -76,6 +76,7 @@ export type CouncilTrace = {
     taskType?: string;
     revisionCount?: number;
     revisionTriggered?: boolean;
+    governorVetoed?: boolean;
     adaptive?: { complexity?: string; path?: string };
     webSearch?: WebSearchOutput | null;
   };

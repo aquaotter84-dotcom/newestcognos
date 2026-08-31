@@ -24,6 +24,7 @@ export type CouncilTrace = {
     taskType: string;
     revisionCount: number;
     revisionTriggered: boolean;
+    governorVetoed: boolean;
     adaptive: { complexity: string; path: string };
     webSearch?: WebSearchOutput | null;
   };
@@ -378,15 +379,26 @@ export async function runCouncil(
   let revisionCount = 0;
   let revisionTriggered = false;
 
-  const evaluator = (critic.output.evaluation || {}) as Record<string, unknown>;
-  const score = Number(evaluator.score ?? 0);
-  const needsRevision = evaluator.needs_revision === true && !isSimple;
+  // Re-evaluate after EVERY critic pass — the loop must stop early once the
+  // revised draft clears the threshold, not blindly burn the full budget.
+  const evaluate = (output: Record<string, unknown>) => {
+    const evaluation = (output.evaluation || {}) as Record<string, unknown>;
+    const score = Number(evaluation.score ?? 0);
+    const threshold = Number(
+      evaluation.revisionThreshold ??
+        (process.env.COUNCIL_REVISION_THRESHOLD || 70)
+    );
+    const needsRevision = evaluation.needs_revision === true && !isSimple;
+    return { score, threshold, needsRevision };
+  };
+
+  let verdict = evaluate(critic.output);
 
   while (
     maxRevisions > 0 &&
     revisionCount < maxRevisions &&
-    needsRevision &&
-    score < Number(evaluator.revisionThreshold ?? (process.env.COUNCIL_REVISION_THRESHOLD || 70))
+    verdict.needsRevision &&
+    verdict.score < verdict.threshold
   ) {
     revisionTriggered = true;
     revisionCount++;
@@ -404,6 +416,7 @@ export async function runCouncil(
       userMessage,
       { temperature: 0.4 }
     );
+    verdict = evaluate(critic.output);
   }
 
   const rawResponse = synthesizer.output.responseText;
@@ -421,6 +434,10 @@ export async function runCouncil(
     { temperature: 0.4 }
   );
 
+  // The Governor holds the veto. When it withholds approval, honor the
+  // Sovereignty layer: release only its own directive. If it gave no
+  // directive, release an explicit refusal — never the draft it declined
+  // to stand behind.
   const goveOutput = governor.output as Record<string, unknown>;
   const approved = goveOutput.approved !== false;
   let releasedFinal = finalResponse;
@@ -456,6 +473,7 @@ export async function runCouncil(
       taskType: taskTypeValue,
       revisionCount,
       revisionTriggered,
+      governorVetoed: !approved,
       adaptive: { complexity, path },
       webSearch: webSearchOutput,
     },

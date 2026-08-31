@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCognos } from "@/lib/cognos-context";
 import type { Session } from "@/types/cognos";
 
@@ -76,6 +76,8 @@ function SessionItem({
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeSessionId = searchParams.get("c");
   const {
     workspaces,
     activeWorkspace,
@@ -156,7 +158,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <SessionItem
             key={s.id}
             session={s}
-            active={false}
+            active={s.id === activeSessionId}
             onSelect={() => handleSelectSession(s.id)}
             onDelete={() => handleDeleteSession(s.id)}
           />
