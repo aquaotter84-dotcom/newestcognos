@@ -35,6 +35,21 @@ function LoginForm() {
     };
   }, [router, next]);
 
+  // Administrator access (ADMIN_BYPASS_KEY) — shown only when configured.
+  const [adminConfigured, setAdminConfigured] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [adminKey, setAdminKey] = useState("");
+  const [adminError, setAdminError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/admin-login")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { configured?: boolean } | null) => {
+        if (d?.configured) setAdminConfigured(true);
+      })
+      .catch(() => {});
+  }, []);
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -51,6 +66,30 @@ function LoginForm() {
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const adminSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setAdminError(null);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/admin-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminKey }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Administrator sign-in failed");
+      router.push(next || "/");
+      router.refresh();
+    } catch (err) {
+      setError(null);
+      setAdminError(
+        err instanceof Error ? err.message : "Administrator sign-in failed"
+      );
     } finally {
       setLoading(false);
     }
@@ -120,6 +159,53 @@ function LoginForm() {
             </Link>
           </div>
         </div>
+
+        {adminConfigured && (
+          <div className="mt-5 pt-4" style={{ borderTop: "1px solid #1a1f3a" }}>
+            {!showAdmin ? (
+              <button
+                type="button"
+                onClick={() => setShowAdmin(true)}
+                className="w-full text-xs text-center transition-colors"
+                style={{ color: "#64748b" }}
+              >
+                Administrator access
+              </button>
+            ) : (
+              <form onSubmit={adminSubmit} className="space-y-3">
+                <div className="text-xs font-medium tracking-wider" style={{ color: "#34d399" }}>
+                  ◆ ADMINISTRATOR ACCESS
+                </div>
+                {adminError && (
+                  <div className="text-sm px-3 py-2 rounded-lg" style={{ background: "#1a0505", border: "1px solid #7f1d1d44", color: "#fca5a5" }}>
+                    {adminError}
+                  </div>
+                )}
+                <input
+                  type="password"
+                  value={adminKey}
+                  onChange={(e) => setAdminKey(e.target.value)}
+                  placeholder="Administrator key"
+                  required
+                  className="w-full text-sm px-3 py-2.5 rounded-lg outline-none"
+                  style={{ background: "#080b18", border: "1px solid #1a1f3a", color: "#e2e8f0" }}
+                />
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full text-sm font-medium py-2.5 rounded-lg"
+                  style={{ background: "#0f3d2e", border: "1px solid #34d39944", color: "#34d399" }}
+                >
+                  {loading ? "Entering…" : "Enter as administrator"}
+                </button>
+                <div className="text-xs" style={{ color: "#334155" }}>
+                  The key is the ADMIN_BYPASS_KEY set in the server environment.
+                  Sessions created this way are recorded in the audit trail.
+                </div>
+              </form>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

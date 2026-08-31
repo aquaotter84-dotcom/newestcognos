@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { authSessions, users } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { getAdminAutoLoginUser } from "@/lib/admin";
 
 export const SESSION_COOKIE = "cognos_session";
 const SESSION_DAYS = 30;
@@ -14,6 +15,12 @@ export type AuthUser = {
   email: string;
   name: string;
   role: string;
+  /**
+   * How this identity was established:
+   * - "session":     a real auth_sessions row (password login, register, admin key)
+   * - "admin-auto":  synthesized because ADMIN_AUTO_LOGIN=true and no cookie
+   */
+  authMode?: "session" | "admin-auto";
 };
 
 // ─── Administrator bootstrap (self-hosted single-operator mode) ────────────
@@ -93,13 +100,22 @@ export async function getUserBySessionToken(
     await destroySession(token);
     return null;
   }
-  return { id: row.id, email: row.email, name: row.name, role: row.role };
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    role: row.role,
+    authMode: "session",
+  };
 }
 
 export async function getSessionFromCookies() {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!token) return null;
-  return getUserBySessionToken(token);
+  if (token) return getUserBySessionToken(token);
+  // Administrator auto sign-in (ADMIN_AUTO_LOGIN=true): a request without a
+  // session cookie is treated as the administrator. Off unless explicitly
+  // enabled; see src/lib/admin.ts.
+  return getAdminAutoLoginUser();
 }
 
 export async function requireAuth() {

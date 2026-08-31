@@ -43,6 +43,7 @@ This is the open-source rewrite of the Base44 “COGNOS / Cognitive-Acuity” ap
    - optional: `MEMORY_EXTRACTION=true|false` (memory extraction is on by default)
    - optional: `COUNCIL_MAX_REVISIONS` (default `1`), `COUNCIL_REVISION_THRESHOLD` (default `70`)
    - optional web search: `WEB_SEARCH_PROVIDER=duckduckgo|tavily|exa` plus applicable API key (`TAVILY_API_KEY` / `EXA_API_KEY`)
+   - optional administrator access: `ADMIN_BYPASS_KEY` (key sign-in from `/login`) and/or `ADMIN_AUTO_LOGIN=true` (skip the login screen; private deployments only) — see "Administrator access" below
 4. `npm install`
 5. `npm run dev` — open http://localhost:3000
 
@@ -100,9 +101,19 @@ sign in at `/login`, role `user`.
 - Use the **pooled** connection string in Vercel; the direct (non-pooler) string is best for local `psql`/migrations.
 - `src/db/index.ts` caps the pool at `DATABASE_POOL_MAX` (default 10) and reuses the pool across warm serverless invocations; set it lower if you hit Neon connection limits.
 
+## Administrator access
+
+COGNOS has no privileged sign-in path by default. Two **opt-in, environment-gated** mechanisms exist for the instance administrator:
+
+1. **Bypass key** — set `ADMIN_BYPASS_KEY` to a strong random value (e.g. `openssl rand -hex 32`). The `/login` page then shows an "Administrator access" panel. Enter the key to be signed in as the administrator. The exchange happens server-side (`POST /api/auth/admin-login`), the key is compared in constant time, and the resulting session is a normal, revocable session cookie recorded in the audit trail.
+2. **Auto sign-in** — set `ADMIN_AUTO_LOGIN=true` to skip the login screen entirely: any request without a session cookie is treated as the administrator. Use **only** for private, single-user deployments behind your own access control (localhost, VPN, home network). While this mode is on, the administrator account cannot be deleted and the Sign out button has no lasting effect.
+
+Both mechanisms resolve to a dedicated DB-backed administrator user (`role = "admin"`, unguessable random password hash) so all existing guards — workspace ownership, session expiry, logout, audit — keep working. The administrator account is owned by server configuration and cannot be deleted from the UI.
+
 ## API
 
-- `GET /api/health` — DB connectivity check
+- `GET /api/health` — DB connectivity, active model, and administrator-access status
+- `GET/POST /api/auth/admin-login` — administrator-access status / key sign-in (requires `ADMIN_BYPASS_KEY`)
 - `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/delete-account` — account management
 - `GET /api/auth/bootstrap` — admin auto sign-in (only active with `COGNOS_AUTO_SIGNIN=true`)
 - `GET/POST/PATCH/DELETE /api/workspaces` — workspace CRUD
