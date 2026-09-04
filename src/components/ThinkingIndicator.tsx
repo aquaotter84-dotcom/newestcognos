@@ -1,83 +1,69 @@
 "use client";
 
-const STAGES = [
-  { key: "observer", label: "Observer", icon: "◎", color: "#38bdf8" },
-  { key: "strategist", label: "Strategist", icon: "◈", color: "#a78bfa" },
-  { key: "specialist", label: "Specialist", icon: "✳", color: "#f472b6" },
-  { key: "synthesizer", label: "Synthesizer", icon: "⬡", color: "#4f7aff" },
-  { key: "critic", label: "Critic", icon: "◉", color: "#f59e0b" },
-  { key: "governor", label: "Governor", icon: "◆", color: "#34d399" },
-];
+import { OPERATOR_META, OPERATOR_ORDER } from "@/types";
 
-type Props = {
-  stage?: number; // 0-4
-};
+/**
+ * Shown while the council deliberates. The highlight walks the council in
+ * order as a hint of the pipeline — the request itself is a single
+ * non-streaming deliberation, so this is an ambient "thinking" state, not a
+ * progress bar.
+ */
+export default function ThinkingIndicator({ stage = 0 }: { stage?: number }) {
+  const active = OPERATOR_ORDER[Math.min(stage, OPERATOR_ORDER.length - 1)];
+  const activeMeta = OPERATOR_META[active];
 
-export default function ThinkingIndicator({ stage = 0 }: Props) {
   return (
-    <div className="flex gap-3">
-      {/* Avatar */}
+    <div className="flex gap-3 animate-slide-up">
       <div
         className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold council-active"
         style={{
-          background: "linear-gradient(135deg, #0c0f1e, #1a1f3a)",
+          background: "var(--cognos-surface)",
           border: "1px solid #4f7aff44",
-          color: "#4f7aff",
+          color: "var(--cognos-accent)",
         }}
       >
         C
       </div>
 
       <div
-        className="flex-1 rounded-2xl rounded-tl-sm px-4 py-3"
-        style={{ background: "#0c0f1e", border: "1px solid #1a1f3a", maxWidth: "360px" }}
+        className="rounded-2xl rounded-tl-sm px-4 py-3"
+        style={{ background: "var(--cognos-surface)", border: "1px solid var(--cognos-border)" }}
       >
-        {/* Council pipeline */}
-        <div className="flex items-center gap-1.5 mb-3">
-          {STAGES.map((s, i) => (
-            <div key={s.key} className="flex items-center gap-1.5">
-              <div
-                className="flex items-center gap-1 text-xs transition-all duration-500"
-                style={{
-                  color: i <= stage ? s.color : "#1e293b",
-                  opacity: i === stage ? 1 : i < stage ? 0.6 : 0.3,
-                }}
-              >
-                <span>{s.icon}</span>
-                {i === stage && (
-                  <span className="text-xs font-medium" style={{ color: s.color }}>
-                    {s.label}
-                  </span>
-                )}
-              </div>
-              {i < STAGES.length - 1 && (
-                <span className="text-xs" style={{ color: i < stage ? "#1e3a5f" : "#0f172a" }}>
-                  →
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Dots */}
-        <div className="flex gap-1.5 items-center">
-          <div
-            className="thinking-dot w-1.5 h-1.5 rounded-full"
-            style={{ background: STAGES[Math.min(stage, STAGES.length - 1)].color }}
-          />
-          <div
-            className="thinking-dot w-1.5 h-1.5 rounded-full"
-            style={{ background: STAGES[Math.min(stage, STAGES.length - 1)].color }}
-          />
-          <div
-            className="thinking-dot w-1.5 h-1.5 rounded-full"
-            style={{ background: STAGES[Math.min(stage, STAGES.length - 1)].color }}
-          />
-          <span className="text-xs ml-1" style={{ color: "#475569" }}>
-            {STAGES[Math.min(stage, STAGES.length - 1)].label === "Synthesizing"
-              ? "Forming unified response…"
-              : `${STAGES[Math.min(stage, STAGES.length - 1)].label} processing…`}
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs font-medium" style={{ color: "var(--cognos-muted)" }}>
+            The council is deliberating
           </span>
+          <span
+            className="text-xs font-semibold"
+            style={{ color: activeMeta.color }}
+          >
+            — {activeMeta.label}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {OPERATOR_ORDER.map((op, i) => {
+            const m = OPERATOR_META[op];
+            const done = i < stage;
+            const current = i === Math.min(stage, OPERATOR_ORDER.length - 1);
+            return (
+              <span
+                key={op}
+                className={`flex items-center justify-center rounded-md ${current ? "council-active" : ""}`}
+                style={{
+                  width: 26,
+                  height: 22,
+                  fontSize: 12,
+                  color: done || current ? m.color : "var(--cognos-faint)",
+                  background: current ? `${m.color}18` : "var(--cognos-surface-2)",
+                  border: `1px solid ${done || current ? `${m.color}55` : "var(--cognos-border)"}`,
+                  opacity: done || current ? 1 : 0.6,
+                }}
+                title={m.label}
+              >
+                {m.icon}
+              </span>
+            );
+          })}
         </div>
       </div>
     </div>

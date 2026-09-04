@@ -2,72 +2,54 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { sessions } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { requireAuth } from "@/lib/auth";
-import { canAccessWorkspace } from "@/lib/workspace";
+import { runtimeGuard } from "@/lib/guard";
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireAuth();
-  if (!auth.user) return auth.response!;
-
+  const denied = runtimeGuard(request);
+  if (denied) return denied;
   try {
     const { id } = await params;
-    const body = await request.json().catch(() => ({}));
-
-    const [existing] = await db
-      .select()
-      .from(sessions)
-      .where(eq(sessions.id, id))
-      .limit(1);
-    if (!existing || !(await canAccessWorkspace(existing.workspaceId, auth.user.id))) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    const body = (await request.json().catch(() => ({}))) as { title?: string };
+    const title =
+      typeof body.title === "string" ? body.title.trim().slice(0, 120) : undefined;
+    if (!title) {
+      return NextResponse.json({ error: "title required" }, { status: 400 });
     }
 
     const [updated] = await db
       .update(sessions)
-      .set({
-        title: body.title ?? undefined,
-        summary: body.summary ?? undefined,
-        lastMessagePreview: body.lastMessagePreview ?? undefined,
-        archived: body.archived ?? undefined,
-        updatedAt: new Date(),
-      })
+      .set({ title, updatedAt: new Date() })
       .where(eq(sessions.id, id))
       .returning();
 
     if (!updated) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+      return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
     }
     return NextResponse.json(updated);
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Failed to update session" }, { status: 500 });
+    console.error("PATCH /api/sessions/[id]:", err);
+    return NextResponse.json({ error: "Failed to update conversation" }, { status: 500 });
   }
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireAuth();
-  if (!auth.user) return auth.response!;
-
+  const denied = runtimeGuard(request);
+  if (denied) return denied;
   try {
     const { id } = await params;
-    const [existing] = await db
-      .select()
-      .from(sessions)
-      .where(eq(sessions.id, id))
-      .limit(1);
-    if (!existing || !(await canAccessWorkspace(existing.workspaceId, auth.user.id))) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    const [deleted] = await db.delete(sessions).where(eq(sessions.id, id)).returning();
+    if (!deleted) {
+      return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
     }
-    await db.delete(sessions).where(eq(sessions.id, id));
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Failed to delete session" }, { status: 500 });
+    console.error("DELETE /api/sessions/[id]:", err);
+    return NextResponse.json({ error: "Failed to delete conversation" }, { status: 500 });
   }
 }

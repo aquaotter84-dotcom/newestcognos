@@ -1,2 +1,0 @@
-neon link --project-id little-boat-67522388 --branch-id br-soft-dawn-a5zkdzsg
-neon function deploy <function-slug> --src <path-to-index.ts>

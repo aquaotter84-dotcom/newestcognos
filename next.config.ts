@@ -1,9 +1,7 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  // pdf-parse pulls in Node-only files; keep it out of the webpack bundle
-  // so PDF ingestion works in Vercel serverless functions.
-  serverExternalPackages: ["pdf-parse"],
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // Nothing server-external to exclude: the rebuild has no native/heavy
+  // dependencies beyond pg (pure JS) and drizzle.
 };
 
 export default nextConfig;
