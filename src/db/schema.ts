@@ -1,6 +1,6 @@
-import { sql } from "drizzle-orm";
 import {
   boolean,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -19,16 +19,6 @@ export const memoryTierEnum = pgEnum("memory_tier", [
   "mythic",
 ]);
 
-export const operatorEnum = pgEnum("operator", [
-  "observer",
-  "strategist",
-  "specialist",
-  "synthesizer",
-  "critic",
-  "governor",
-  "orchestrator",
-]);
-
 export const memoryTypeEnum = pgEnum("memory_type", [
   "working",
   "episodic",
@@ -42,237 +32,68 @@ export const evidenceEnum = pgEnum("evidence_level", [
   "assumed",
 ]);
 
-export const volatilityEnum = pgEnum("volatility", [
-  "low",
-  "medium",
-  "high",
-]);
+export const volatilityEnum = pgEnum("volatility", ["low", "medium", "high"]);
 
-export const taskTypeEnum = pgEnum("task_type", [
-  "conversation",
-  "question_answering",
-  "research",
-  "planning",
-  "coding",
-  "analysis",
-  "creative",
-  "decision_support",
-  "action_execution",
-]);
+// ─── Conversations ──────────────────────────────────────────────────────────
 
-export const statusEnum = pgEnum("status", [
-  "pending",
-  "processing",
-  "complete",
-  "success",
-  "error",
-]);
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull().default("New conversation"),
+    summary: text("summary"),
+    lastMessagePreview: text("last_message_preview").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("idx_sessions_updated_at").on(table.updatedAt),
+  ]
+);
 
-export const auditEventTypeEnum = pgEnum("audit_event_type", [
-  "agent_invocation",
-  "model_call",
-  "memory_operation",
-  "tool_call",
-  "error",
-]);
-
-// ─── Users ───────────────────────────────────────────────────────────────────
-
-export const users = pgTable("users", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  email: text("email").notNull().unique(),
-  name: text("name").notNull().default(""),
-  passwordHash: text("password_hash").notNull(),
-  role: text("role").notNull().default("user"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-export const authSessions = pgTable("auth_sessions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  token: text("token").notNull().unique(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-// ─── Workspaces ─────────────────────────────────────────────────────────────
-
-export const workspaces = pgTable("workspaces", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  ownerId: uuid("owner_id").references(() => users.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  description: text("description").default(""),
-  instructions: text("instructions").default(""),
-  color: text("color").notNull().default("#3B82F6"),
-  icon: text("icon").notNull().default("Brain"),
-  isDefault: boolean("is_default").notNull().default(false),
-  memberEmails: jsonb("member_emails").$type<string[]>().default([]),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-// ─── Sessions (conversations) ────────────────────────────────────────────────
-
-export const sessions = pgTable("sessions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  workspaceId: uuid("workspace_id")
-    .notNull()
-    .references(() => workspaces.id, { onDelete: "cascade" }),
-  title: text("title").notNull().default("New Session"),
-  summary: text("summary"),
-  lastMessagePreview: text("last_message_preview").default(""),
-  archived: boolean("archived").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-// ─── Messages ────────────────────────────────────────────────────────────────
+// ─── Messages ───────────────────────────────────────────────────────────────
 
 export const messages = pgTable("messages", {
   id: uuid("id").primaryKey().defaultRandom(),
   sessionId: uuid("session_id")
     .notNull()
     .references(() => sessions.id, { onDelete: "cascade" }),
-  workspaceId: uuid("workspace_id")
-    .notNull()
-    .references(() => workspaces.id, { onDelete: "cascade" }),
-  role: text("role").notNull(), // "user" | "assistant" | "system"
+  role: text("role").notNull(), // "user" | "assistant"
   content: text("content").notNull(),
   modelUsed: text("model_used"),
-  taskType: taskTypeEnum("task_type"),
-  attachments: jsonb("attachments").$type<
-    Array<{ name: string; file_url: string; file_type: string }>
-  >(),
-  processingStatus: statusEnum("processing_status").notNull().default("complete"),
+  /** The full council trace for assistant messages — what each operator
+   *  contributed, the latent stats, and whether the Governor vetoed. */
   councilTrace: jsonb("council_trace"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (table) => [
+  index("idx_messages_session_created").on(table.sessionId, table.createdAt),
+]);
 
-// ─── Memory ──────────────────────────────────────────────────────────────────
+// ─── Long-term memory ───────────────────────────────────────────────────────
 
 export const memories = pgTable("memories", {
   id: uuid("id").primaryKey().defaultRandom(),
-  workspaceId: uuid("workspace_id")
-    .notNull()
-    .references(() => workspaces.id, { onDelete: "cascade" }),
-  sessionId: uuid("session_id").references(() => sessions.id, {
-    onDelete: "set null",
-  }),
   tier: memoryTierEnum("tier").notNull().default("medium"),
   memoryType: memoryTypeEnum("memory_type").notNull().default("semantic"),
-  operator: operatorEnum("operator").notNull().default("orchestrator"),
   key: text("key").notNull(),
   value: text("value").notNull(),
   importance: integer("importance").notNull().default(5),
-  relevanceScore: integer("relevance_score").notNull().default(50),
   evidenceLevel: evidenceEnum("evidence_level").notNull().default("inferred"),
   volatility: volatilityEnum("volatility").notNull().default("medium"),
   isEnabled: boolean("is_enabled").notNull().default(true),
   source: text("source"),
-  sharedWorkspaceIds: jsonb("shared_workspace_ids").$type<string[]>().default([]),
-  lastConfirmed: timestamp("last_confirmed", { withTimezone: true }).defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }),
-});
-
-// ─── Documents ───────────────────────────────────────────────────────────────
-
-export const documents = pgTable("documents", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  workspaceId: uuid("workspace_id")
-    .notNull()
-    .references(() => workspaces.id, { onDelete: "cascade" }),
-  sessionId: uuid("session_id").references(() => sessions.id, {
-    onDelete: "set null",
-  }),
-  name: text("name").notNull(),
-  source: text("source").notNull().default("upload"),
-  fileUrl: text("file_url"),
-  fileType: text("file_type"),
-  mimeType: text("mime_type"),
-  category: text("category").notNull().default("document"),
-  contentText: text("content_text"),
-  summary: text("summary"),
-  analysis: text("analysis"),
-  processingStatus: statusEnum("processing_status").notNull().default("pending"),
-  errorMessage: text("error_message"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-// ─── Insights (autonomous council deliberation) ──────────────────────────────
-
-export const insights = pgTable("insights", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  workspaceId: uuid("workspace_id")
-    .notNull()
-    .references(() => workspaces.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  content: text("content").notNull(),
-  triggerType: text("trigger_type").notNull().default("manual"),
-  topic: text("topic").default(""),
-  taskType: taskTypeEnum("task_type").default("analysis"),
-  modelUsed: text("model_used"),
-  council: jsonb("council").$type<Record<string, unknown>>(),
-  isRead: boolean("is_read").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-// ─── Activity / audit events ─────────────────────────────────────────────────
-
-export const auditEvents = pgTable("audit_events", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  workspaceId: uuid("workspace_id")
-    .notNull()
-    .references(() => workspaces.id, { onDelete: "cascade" }),
-  sessionId: uuid("session_id").references(() => sessions.id, {
-    onDelete: "set null",
-  }),
-  description: text("description"),
-  eventType: auditEventTypeEnum("event_type").notNull(),
-  agentType: text("agent_type"),
-  modelUsed: text("model_used"),
-  taskType: taskTypeEnum("task_type"),
-  tokenCount: integer("token_count").notNull().default(0),
-  latencyMs: integer("latency_ms").notNull().default(0),
-  status: statusEnum("status").notNull().default("success"),
-  errorMessage: text("error_message"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
-
-// Helper for deriving the next update timestamp.
-export function updateNow() {
-  return sql`now()`;
-}
+}, (table) => [
+  index("idx_memories_importance_updated").on(table.importance, table.updatedAt),
+]);

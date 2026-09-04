@@ -1,55 +1,53 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
+type DrizzlePg = ReturnType<typeof drizzle>;
+
 const globalForDb = globalThis as typeof globalThis & {
   __cognosPool?: Pool;
-  __cognosDb?: ReturnType<typeof drizzle>;
+  __cognosDb?: DrizzlePg;
 };
 
-function getDb(): ReturnType<typeof drizzle> {
+function getDb(): DrizzlePg {
   if (!globalForDb.__cognosDb) {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) {
       throw new Error(
-        "DATABASE_URL is required. Add it to your environment variables (Vercel Settings > Environment Variables), or set it in .env for local development."
+        "DATABASE_URL is not set. Set it in .env (local) or Vercel environment variables, then apply the schema with `npm run db:push`."
       );
     }
 
-    // Neon/Vercel defaults: keep the per-instance pool small so a single
-    // serverless function doesn't exhaust Neon's connection limit. Use the
-    // *pooled* connection string in Vercel; the direct string is fine locally.
-    const max = Math.max(
-      1,
-      Math.min(20, Number(process.env.DATABASE_POOL_MAX || 10))
-    );
-    const idleTimeoutMillis = Number(
-      process.env.DATABASE_POOL_IDLE_MS || 30000
-    );
-
+    // Neon/Vercel-friendly defaults: keep the per-instance pool small so a
+    // single serverless function never exhausts the database's connections.
     const pool = new Pool({
       connectionString: databaseUrl,
-      max,
-      idleTimeoutMillis,
-      connectionTimeoutMillis: Number(
-        process.env.DATABASE_CONNECTION_TIMEOUT_MS || 10000
-      ),
+      max: 10,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000,
     });
-    // Idle clients can die (Neon pauses its serverless DB, cold starts,
-    // network blips). Without this listener the "error" event is unhandled
-    // and crashes the serverless function on Vercel.
+
+    // Idle clients can die (Neon pauses, cold starts, network blips).
+    // Without this listener the unhandled "error" event would crash the
+    // serverless function.
     pool.on("error", (err) => {
       console.error("pg pool idle client error:", err.message);
     });
+
     globalForDb.__cognosPool = pool;
     globalForDb.__cognosDb = drizzle(pool);
   }
   return globalForDb.__cognosDb;
 }
 
-// Lazy proxy: the database is only created when a query actually runs.
-// This keeps builds working before DATABASE_URL is set, and surfaces a
-// clear error at runtime instead of failing the build.
-export const db = new Proxy({} as ReturnType<typeof drizzle>, {
+/**
+ * Lazy database handle.
+ *
+ * Importing this module NEVER connects to the database — the pool is created
+ * only when the first query actually runs. That is what lets `next build`
+ * succeed with DATABASE_URL unset, and surfaces a clear error at runtime
+ * instead of at build time.
+ */
+export const db = new Proxy({} as DrizzlePg, {
   get(_target, prop) {
     const d = getDb();
     const value = (d as unknown as Record<string | symbol, unknown>)[prop];

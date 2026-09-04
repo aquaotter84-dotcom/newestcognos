@@ -1,136 +1,127 @@
-# COGNOS
-
-Cognitive Operators for Guidance, Navigation, Oversight, and Sovereignty.
+# COGNOS — Cognitive Operators for Guidance, Navigation, Oversight, and Sovereignty
 
 One Voice Outward. Many Minds Underneath.
 
-A self-hostable Next.js app (App Router, TypeScript, Tailwind 4, Drizzle ORM + PostgreSQL) that runs chat, memory, autonomous deliberations, and an architecture monitor through a council of cognitive operators: Observer, Strategist, Specialist, Synthesizer, Critic, and Governor.
+A personal reasoning engine. Every message you send goes to a council of six
+cognitive operators before anything is answered:
 
-This is the open-source rewrite of the Base44 “COGNOS / Cognitive-Acuity” app. It uses no Base44 SDK, credits, or meters.
+| Operator | Role |
+| --- | --- |
+| **Observer** | Sees what is actually there — intent, ambiguity, context |
+| **Strategist** | Plans the approach — framing, paths, constraints |
+| **Specialist** | Brings focused depth — the substantive work |
+| **Synthesizer** | Merges the views into one answer |
+| **Critic** | Attacks the weak points — scores the draft, demands revisions |
+| **Governor** | Holds real veto power over the final answer |
 
-## What it does
+The Sovereign principle sits above all of it: **the system would rather stay
+silent than lie.** When the Governor withholds approval, the app refuses —
+a no-answer beats a false one. Every request produces a visible council
+trace beside the final answer.
 
-- **Chat** — every message runs through the six-operator council and returns one unified response. Council traces are visible per message.
-- **Memory** — the council recommends durable memories (short / medium / long / mythic), with an enriched data model (`memory_type`, `importance`, `evidence_level`, `volatility`, `is_enabled`).
-- **Threads** — search, rename, open, and delete conversations per workspace.
-- **Workspaces** — create, edit, switch, and delete separate cognitive contexts.
-- **Accounts** — email/password registration, login, logout, hard delete. Data is scoped to the signed-in user and their workspaces. Administrator mode (env-configured admin + optional auto sign-in that bypasses the login screen) for self-hosted single-operator deployments.
-- **Insights** — autonomous one-off deliberations stored as insights, plus scheduled daily briefings for cron.
-- **Activity** — audit trail of council invocations, model calls, and memory operations.
-- **System** — visual architecture map of the pipeline.
-- **Beliefs / Dynamics** — derived view of enabled memory and a timeline of changes.
-- **Documents** — add files, URLs, or pasted text; text/PDF extraction, LLM summary, and attachment to the council context.
-- **Voice** — speech-to-text input and an "auto-speak" output toggle.
-- **Streaming / stop** — typewriter reveal of the response and a stop control while the council is running.
-- **Branching threads** — copy a conversation into a new session.
-- **Memory sharing** — share a memory with another workspace and revoke the share.
+Council charter: **Truth, Evidence, Agency, Dignity.**
 
 ## Stack
 
-- Next.js 16 (App Router) + React 19
-- Drizzle ORM + node-postgres (PostgreSQL: Neon, Supabase, or any Postgres)
-- BluesMinds API (OpenAI-compatible) or any OpenAI-compatible chat endpoint for the council LLM calls
+- Next.js 16 (App Router) + React 19 + TypeScript, mobile-first
+- PostgreSQL (Neon) + Drizzle ORM — sessions, messages, long-term memories
+- OpenAI-compatible chat completions at `https://api.bluesminds.com/v1/chat/completions`
+- Deployable on the Vercel free tier; **no auth, no accounts, no login — ever**
+
+## Environment variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `BLUESMINDS_API_KEY` | yes | API key for the council LLM calls |
+| `BLUESMINDS_MODEL` | no | Model name. Default `gpt-4o-mini` (verified working) |
+| `DATABASE_URL` | yes | PostgreSQL connection string (Neon **pooled** string on Vercel) |
+| `COGNOS_RUNTIME_SECRET` | no | If set, every `/api` route requires a request header `x-cognos-secret` with the same value. Server-side only, no UI. Leave unset for normal use. |
 
 ## Local development
 
-1. Create a PostgreSQL database (free Neon or Supabase instance).
-2. For a **fresh** database, run `src/db/schema.sql` in it once.
-   For an **existing** COGNOS database, run `src/db/migrate.sql` to upgrade to the workspace-aware schema.
-3. Copy `.env.example` to `.env` and fill in:
-   - `DATABASE_URL` — your Postgres connection string
-   - `BLUESMINDS_API_KEY` — your BluesMinds key
-   - optional: `BLUESMINDS_MODEL` (default `gpt_5_4`), `BLUESMINDS_API_URL` (default `https://api.bluesminds.com/v1/chat/completions`)
-   - optional: `MEMORY_EXTRACTION=true|false` (memory extraction is on by default)
-   - optional: `COUNCIL_MAX_REVISIONS` (default `1`), `COUNCIL_REVISION_THRESHOLD` (default `70`)
-   - optional web search: `WEB_SEARCH_PROVIDER=duckduckgo|tavily|exa` plus applicable API key (`TAVILY_API_KEY` / `EXA_API_KEY`)
-   - optional administrator access: `ADMIN_BYPASS_KEY` (key sign-in from `/login`) and/or `ADMIN_AUTO_LOGIN=true` (skip the login screen; private deployments only) — see "Administrator access" below
-4. `npm install`
-5. `npm run dev` — open http://localhost:3000
+```bash
+npm install
 
-## Deploy on Neon + Vercel
+# 1. Create a database (Neon free tier, Supabase, or local Postgres)
+# 2. Apply the schema — pick ONE:
+npm run db:push          # simplest: push the Drizzle schema directly
+# — or, for SQL migration files:
+npm run db:generate      # emits SQL into ./drizzle
+npm run db:migrate       # applies them in order (needs DATABASE_URL)
 
-1. Create a Neon database (free plan is fine) and copy the **pooled** connection string (`Project → Connect → Connection string → Pooled`). It looks like `postgresql://...-pooler...ssl=require`.
-2. Run `src/db/schema.sql` in the Neon SQL editor once (or `src/db/migrate.sql` if you already used the older single-workspace schema).
-3. Push this repo to GitHub and import it in Vercel (framework preset: Next.js — auto-detected).
-4. Add these Vercel Environment Variables:
-   - `DATABASE_URL` — the Neon pooled string
-   - `BLUESMINDS_API_KEY` — your BluesMinds key
-   - `CRON_SECRET` — a strong random string (e.g. `openssl rand -hex 32`)
-   - optional `BLUESMINDS_MODEL`, `MEMORY_EXTRACTION`, `COUNCIL_MAX_REVISIONS`
-   - optional `WEB_SEARCH_PROVIDER` + provider key for Tavily/Exa
-   - optional administrator mode: `COGNOS_ADMIN_EMAIL`, `COGNOS_ADMIN_PASSWORD`, and `COGNOS_AUTO_SIGNIN=true` to bypass the login screen (see below)
-5. In Vercel project Settings → Cron Jobs, enable the built-in cron (the repo already includes `vercel.json` with a daily briefing at 08:00 UTC) and set the secret to the same `CRON_SECRET`.
-6. Deploy. Sign in (or use administrator mode below), then use the app.
+# 3. Configure the environment
+cp .env.example .env     # fill in BLUESMINDS_API_KEY and DATABASE_URL
 
-### Administrator mode (skip the login screen)
+# 4. Run
+npm run dev              # http://localhost:3000 — straight into chat
+```
 
-COGNOS is built for self-hosted single-operator use, so you can become the
-administrator from environment variables alone — no manual SQL:
+`npm run build` works without `DATABASE_URL` — the database is lazy-initialized
+and only connected on the first real query.
 
-- `COGNOS_ADMIN_EMAIL` + `COGNOS_ADMIN_PASSWORD`
-  - **Login with these credentials always works**, even on a completely fresh
-    database: the account is created on first use with role `admin`. The
-    configured password doubles as a recovery credential for that account.
-  - Registering with `COGNOS_ADMIN_EMAIL` also yields role `admin`.
-- `COGNOS_AUTO_SIGNIN=true` (requires both variables above)
-  - **The login screen is bypassed entirely.** On every page load the app
-    asks `/api/auth/bootstrap` to mint a session for the admin user, so you
-    open the app and you're in, as `◆ Administrator` (see Settings).
-  - Add the same variable in Vercel Environment Variables for production.
+## Deploy to Vercel
 
-If you don't set these, the app behaves normally: register at `/register`,
-sign in at `/login`, role `user`.
+1. Push the repo and import it in Vercel (Next.js is auto-detected).
+2. Create a Neon database and copy the **pooled** connection string
+   (`Project → Connect → Connection string → Pooled`).
+3. In Vercel → Settings → Environment Variables, add:
+   - `DATABASE_URL` — the pooled string
+   - `BLUESMINDS_API_KEY` — your key
+   - `BLUESMINDS_MODEL` — optional, defaults to `gpt-4o-mini`
+   - `COGNOS_RUNTIME_SECRET` — optional guard, see above
+4. Apply the schema once against that database:
+   - `npm run db:push` from a machine with `DATABASE_URL` exported, or
+   - run the generated SQL (`npm run db:generate`, then the files in `drizzle/`)
+     in the Neon SQL editor.
+5. Deploy. The URL opens directly into a working chat. No accounts, no setup.
 
-### Troubleshooting (Vercel + Neon)
+### Notes
 
-- `/api/health` returns `{"ok":false}` → check `DATABASE_URL` exists in the
-  Vercel environment (use the **pooled** string) and that `src/db/schema.sql`
-  was actually run in the Neon SQL editor. A 500 that says
-  `relation "users" does not exist` means the schema was never applied.
-- Login says **"Invalid email or password"** → there is simply no account
-  with that email yet. Register one, or use administrator mode above (the
-  admin login works even on an empty database).
-- First request after the free Neon instance has been paused for a while can
-  be slow or fail once — the DB is waking up. Retry; the connection pool
-  recovers automatically.
-- The daily cron briefing runs the full council per workspace and can exceed
-  the function time limit on small Vercel plans. If briefings error, raise
-  the plan's function duration or keep the number of workspaces small.
+- Use the **pooled** Neon string on Vercel; the direct string is for local
+  `psql`/migrations.
+- The first request after Neon's free instance has been paused can be slow
+  once — the database is waking up; the pool recovers automatically.
+- A council turn makes several LLM calls in one request; if a turn ever
+  exceeds the Vercel function limit, raise the function duration in project
+  settings.
 
-### Neon notes
-- Use the **pooled** connection string in Vercel; the direct (non-pooler) string is best for local `psql`/migrations.
-- `src/db/index.ts` caps the pool at `DATABASE_POOL_MAX` (default 10) and reuses the pool across warm serverless invocations; set it lower if you hit Neon connection limits.
+## Architecture (one pass)
 
-## Administrator access
+```
+src/
+├── app/
+│   ├── page.tsx                     # chat (the only real page)
+│   ├── memory/page.tsx              # view / manage long-term memories
+│   └── api/
+│       ├── health/route.ts          # DB + model status
+│       ├── sessions/route.ts        # list / create conversations
+│       ├── sessions/[id]/route.ts   # rename / delete conversation
+│       ├── sessions/[id]/messages/route.ts   # load a conversation
+│       ├── messages/route.ts        # THE COUNCIL TURN
+│       └── memories/…               # view / add / toggle / delete memory
+├── db/
+│   ├── schema.ts                    # sessions, messages, memories (Drizzle)
+│   └── index.ts                     # lazy pool — import never connects
+├── lib/
+│   ├── prompts.ts                   # identity, charter, styles, 6 operator prompts
+│   ├── llm.ts                       # chat completion + tolerant JSON extraction
+│   ├── council.ts                   # the deliberation pipeline + veto + memory
+│   └── guard.ts                     # optional COGNOS_RUNTIME_SECRET check
+├── components/                      # MessageBubble, CouncilTrace, …
+└── types.ts
+```
 
-COGNOS has no privileged sign-in path by default. Two **opt-in, environment-gated** mechanisms exist for the instance administrator:
+**The turn** (`POST /api/messages`):
 
-1. **Bypass key** — set `ADMIN_BYPASS_KEY` to a strong random value (e.g. `openssl rand -hex 32`). The `/login` page then shows an "Administrator access" panel. Enter the key to be signed in as the administrator. The exchange happens server-side (`POST /api/auth/admin-login`), the key is compared in constant time, and the resulting session is a normal, revocable session cookie recorded in the audit trail.
-2. **Auto sign-in** — set `ADMIN_AUTO_LOGIN=true` to skip the login screen entirely: any request without a session cookie is treated as the administrator. Use **only** for private, single-user deployments behind your own access control (localhost, VPN, home network). While this mode is on, the administrator account cannot be deleted and the Sign out button has no lasting effect.
+1. Save the user message.
+2. Load context: enabled memories (importance-ranked) + last 8 messages.
+3. Run the council: Observer → Strategist → Specialist → Synthesizer →
+   Critic (with a bounded revision loop) → Governor.
+4. **Veto:** if the Governor declines approval, only its directive — or an
+   explicit refusal — is released. The trace records the veto.
+5. Persist memories (extraction pass + Governor recommendations, deduped).
+6. Save the assistant message with its full council trace; refresh the
+   session title/summary.
 
-Both mechanisms resolve to a dedicated DB-backed administrator user (`role = "admin"`, unguessable random password hash) so all existing guards — workspace ownership, session expiry, logout, audit — keep working. The administrator account is owned by server configuration and cannot be deleted from the UI.
-
-## API
-
-- `GET /api/health` — DB connectivity, active model, and administrator-access status
-- `GET/POST /api/auth/admin-login` — administrator-access status / key sign-in (requires `ADMIN_BYPASS_KEY`)
-- `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`, `POST /api/auth/delete-account` — account management
-- `GET /api/auth/bootstrap` — admin auto sign-in (only active with `COGNOS_AUTO_SIGNIN=true`)
-- `GET/POST/PATCH/DELETE /api/workspaces` — workspace CRUD
-- `GET/POST/PATCH /api/sessions?workspaceId=...` — session list / create / update
-- `PATCH/DELETE /api/sessions/[id]` — session update / delete
-- `POST /api/sessions/[id]/branch` — copy a thread into a new session
-- `GET/POST /api/messages?sessionId=...` — session messages + council chat (supports `webSearch` and document `attachments`)
-- `GET/POST/PATCH/DELETE /api/memories` — memory CRUD, per-workspace sharing, DELETE via `?id=`
-- `GET/POST/PATCH/DELETE /api/documents` — document CRUD + text/URL/PDF ingestion
-- `GET/POST/PATCH/DELETE /api/insights` — insights CRUD
-- `POST /api/insights/run` — run one autonomous deliberation
-- `POST /api/insights/briefing` — run scheduled daily briefings (usable from cron)
-- `GET /api/activity` — activity / audit trail
-
-## Notes
-
-- The council performs these stages per turn: Observer → Strategist → Specialist → Synthesizer → Critic (with best-effort revision loop) → Governor → Orchestrator response.
-- The Governor's `memoryRecommendation` array and a separate memory-extraction pass are written to the `memories` table.
-- Conversation summaries are written back to the session so threads retain continuity.
-- This build does not use Base44 — no platform credits or meters involved.
+The trace is always stored and always visible in the UI (per-message
+"council trace" toggle, one tab per operator).
